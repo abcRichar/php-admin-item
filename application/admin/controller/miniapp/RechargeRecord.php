@@ -30,14 +30,14 @@ class RechargeRecord extends Backend
             }
 
             list($where, $sort, $order, $offset, $limit) = $this->buildparams();
-            $list = $this->model
+            $query = $this->model
                 ->alias('record')
                 ->join('fa_miniapp_user user', 'user.id = record.user_id', 'LEFT')
                 ->field('record.*,user.tel,user.username,user.nickname')
                 ->where('record.type', UserSetting::FINANCE_TYPE_ADMIN_RECHARGE)
-                ->where($where)
-                ->order($sort, $order)
-                ->paginate($limit);
+                ->where($where);
+            $this->applyMiniappAgentUserScope($query, 'user');
+            $list = $query->order($sort, $order)->paginate($limit);
 
             foreach ($list as $row) {
                 $row['display_name'] = (string)($row['username'] ?: $row['nickname'] ?: $row['tel'] ?: ('UID:' . $row['user_id']));

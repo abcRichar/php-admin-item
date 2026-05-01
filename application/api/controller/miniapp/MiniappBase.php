@@ -57,6 +57,16 @@ class MiniappBase extends Api
 
   // ==================== Token / 用户 ====================
 
+  protected function getBusinessTodayStartTime()
+  {
+    $timezone = (string)(\think\Config::get('default_timezone') ?: \think\Config::get('site.timezone') ?: date_default_timezone_get());
+    try {
+      return (new \DateTime('today', new \DateTimeZone($timezone)))->getTimestamp();
+    } catch (\Exception $e) {
+      return strtotime(date('Y-m-d'));
+    }
+  }
+
   protected function getToken()
   {
     return (string)$this->request->header('token', $this->request->param('token', ''));

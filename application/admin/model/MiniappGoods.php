@@ -4,22 +4,34 @@ namespace app\admin\model;
 
 use think\Model;
 
-class MiniappWithdraw extends Model
+class MiniappGoods extends Model
 {
-    protected $name = 'miniapp_withdraw';
+    protected $name = 'miniapp_goods';
+
+    protected $autoWriteTimestamp = 'int';
+    protected $createTime = 'create_time';
+    protected $updateTime = 'update_time';
 
     protected $append = [
         'create_time_text',
         'update_time_text',
         'status_text',
+        'language_text',
     ];
 
     public function getStatusList()
     {
+        return ['0' => __('Disabled'), '1' => __('Normal')];
+    }
+
+    public function getLanguageList()
+    {
         return [
-            '0' => __('Pending'),
-            '1' => __('Approved'),
-            '2' => __('Rejected'),
+            '1' => __('Chinese'),
+            '2' => __('English'),
+            'zh_cn' => __('Chinese'),
+            'en' => __('English'),
+            'en_us' => __('English'),
         ];
     }
 
@@ -40,5 +52,12 @@ class MiniappWithdraw extends Model
         $status = isset($data['status']) ? (string)$data['status'] : '0';
         $list = $this->getStatusList();
         return $list[$status] ?? $status;
+    }
+
+    public function getLanguageTextAttr($value, $data)
+    {
+        $language = isset($data['language']) ? (string)$data['language'] : '';
+        $list = $this->getLanguageList();
+        return $list[$language] ?? $language;
     }
 }

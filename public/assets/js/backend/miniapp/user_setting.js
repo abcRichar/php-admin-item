@@ -21,15 +21,28 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                 columns: [[
                     {field: 'id', title: __('Id'), sortable: true},
                     {field: 'tel', title: __('Tel'), operate: 'LIKE'},
+                    {field: 'parent_account', title: __('Parent_account'), operate: false},
                     {field: 'username', title: __('Username'), operate: 'LIKE'},
                     {field: 'nickname', title: __('Nickname'), operate: 'LIKE'},
                     {field: 'invite_code', title: __('Invite_code'), operate: 'LIKE'},
+                    {field: 'recharge_address', title: __('Recharge_address'), operate: false},
                     {field: 'balance', title: __('Balance'), operate: 'BETWEEN'},
                     {field: 'template_name', title: __('Template_name'), operate: 'LIKE'},
                     {field: 'dispatch_order', title: __('Dispatch_order'), operate: false},
                     {field: 'commission_rate', title: __('Commission_rate'), operate: false},
                     {field: 'fixed_commission', title: __('Fixed_commission'), operate: false},
                     {field: 'dispatch_amount', title: __('Dispatch_amount'), operate: false},
+                    {
+                        field: 'show_td',
+                        title: __('Agent_enabled'),
+                        searchList: {'1': __('Enabled'), '0': __('Disabled')},
+                        formatter: function (value) {
+                            if (parseInt(value, 10) === 1) {
+                                return '<span class="label label-success">' + __('Enabled') + '</span>';
+                            }
+                            return '<span class="label label-default">' + __('Disabled') + '</span>';
+                        }
+                    },
                     {field: 'last_login_time', title: __('Last_login_time'), operate: 'RANGE', addclass: 'datetimerange', formatter: Table.api.formatter.datetime},
                     {
                         field: 'status',

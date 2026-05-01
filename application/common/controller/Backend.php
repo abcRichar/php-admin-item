@@ -5,6 +5,7 @@ namespace app\common\controller;
 use app\admin\library\Auth;
 use think\Config;
 use think\Controller;
+use think\Db;
 use think\Hook;
 use think\Lang;
 use think\Loader;
@@ -113,6 +114,52 @@ class Backend extends Controller
      * 引入后台控制器的traits
      */
     use \app\admin\library\traits\Backend;
+
+    protected function isMiniappAgentAdmin()
+    {
+        $admin = Session::get('admin');
+        return isset($admin['admin_type']) && $admin['admin_type'] === \app\admin\library\Auth::ADMIN_TYPE_AGENT;
+    }
+
+    protected function getMiniappAgentUserId()
+    {
+        $admin = Session::get('admin');
+        return (int)($admin['miniapp_user_id'] ?? 0);
+    }
+
+    protected function applyMiniappAgentUserScope($query, $userAlias = '', $directUserField = '')
+    {
+        if (!$this->isMiniappAgentAdmin()) {
+            return $query;
+        }
+
+        $agentUserId = $this->getMiniappAgentUserId();
+        if ($agentUserId <= 0) {
+            return $query->where('1=0');
+        }
+
+        if ($userAlias !== '') {
+            return $query->where($userAlias . '.parent_id', $agentUserId);
+        }
+
+        $field = $directUserField !== '' ? $directUserField : 'parent_id';
+        return $query->where($field, $agentUserId);
+    }
+
+    protected function assertMiniappAgentCanAccessUser($userId)
+    {
+        if (!$this->isMiniappAgentAdmin()) {
+            return;
+        }
+
+        $allowed = Db::name('miniapp_user')
+            ->where('id', (int)$userId)
+            ->where('parent_id', $this->getMiniappAgentUserId())
+            ->find();
+        if (!$allowed) {
+            $this->error(__('You have no permission'), '');
+        }
+    }
 
     public function _initialize()
     {

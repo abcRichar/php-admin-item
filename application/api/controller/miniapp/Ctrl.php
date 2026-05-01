@@ -89,34 +89,26 @@ class Ctrl extends MiniappBase
       $withdrawNo = 'WD' . date('ymdHis') . mt_rand(1000, 9999);
       Db::startTrans();
       try {
-        $affected = Db::name('miniapp_user')->where('id', (int)$user['id'])
-          ->where('balance', '>=', $num)->setDec('balance', $num);
-        if (!$affected) throw new \RuntimeException('balance not enough');
+        $latestUser = Db::name('miniapp_user')->where('id', (int)$user['id'])->lock(true)->find();
+        if (!$latestUser) {
+          throw new \RuntimeException('user not found');
+        }
+        if ((float)$latestUser['balance'] < $num) {
+          throw new \RuntimeException('balance not enough');
+        }
+        Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+          'balance' => round((float)$latestUser['balance'] - $num, 2),
+          'freeze_balance' => round((float)($latestUser['freeze_balance'] ?? 0) + $num, 2),
+          'update_time' => $now,
+        ]);
         Db::name('miniapp_withdraw')->insert([
           'user_id' => (int)$user['id'],
           'withdraw_no' => $withdrawNo,
           'type' => $type,
           'amount' => $num,
-          'status' => 1,
+          'status' => 0,
           'create_time' => $now,
           'update_time' => $now,
-        ]);
-        $newBalance = (float)$user['balance'] - $num;
-        Db::name('miniapp_finance_log')->insert([
-          'user_id' => (int)$user['id'],
-          'uid' => (int)$user['id'],
-          'sid' => (int)$user['id'],
-          'oid' => $withdrawNo,
-          'type' => 7,
-          'amount' => -$num,
-          'num' => (string)(-$num),
-          'balance' => $newBalance,
-          'balance_after' => $newBalance,
-          'related_order_no' => $withdrawNo,
-          'addtime' => $now,
-          'remark' => 'withdraw apply',
-          'status' => 1,
-          'create_time' => $now,
         ]);
         Db::commit();
       } catch (\Throwable $e) {

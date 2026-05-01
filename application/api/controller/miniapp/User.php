@@ -78,7 +78,10 @@ class User extends MiniappBase
         $this->apiError(__('miniapp.tel_exists'), null, 400);
       }
 
-      $parentUser = Db::name('miniapp_user')->where('invite_code', $inviteCode)->find();
+      $parentUser = Db::name('miniapp_user')->where('invite_code', $inviteCode)->where('show_td', 1)->find();
+      if (!$parentUser) {
+        $this->apiError(__('miniapp.invite_code_invalid'), null, 400);
+      }
       $now = time();
       $token = md5($tel . '_' . microtime(true) . '_' . mt_rand(1000, 9999));
       $newInviteCode = strtoupper(substr(md5($tel . $now), 0, 8));

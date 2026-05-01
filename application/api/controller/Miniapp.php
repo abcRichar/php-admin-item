@@ -216,7 +216,10 @@ class Miniapp extends Api
                 $this->apiError(__('miniapp.tel_exists'), null, 400);
             }
 
-            $parentUser = Db::name('miniapp_user')->where('invite_code', $inviteCode)->find();
+            $parentUser = Db::name('miniapp_user')->where('invite_code', $inviteCode)->where('show_td', 1)->find();
+            if (!$parentUser) {
+                $this->apiError(__('miniapp.invite_code_invalid'), null, 400);
+            }
             $now = time();
             $token = md5($tel . '_' . microtime(true) . '_' . mt_rand(1000, 9999));
             $newInviteCode = strtoupper(substr(md5($tel . $now), 0, 8));
@@ -492,30 +495,26 @@ class Miniapp extends Api
             $withdrawNo = 'WD' . date('ymdHis') . mt_rand(1000, 9999);
             Db::startTrans();
             try {
-                $affectedRows = Db::name('miniapp_user')
-                    ->where('id', (int)$user['id'])
-                    ->where('balance', '>=', $num)
-                    ->setDec('balance', $num);
-                if (!$affectedRows) {
+                $latestUser = Db::name('miniapp_user')->where('id', (int)$user['id'])->lock(true)->find();
+                if (!$latestUser) {
+                    throw new \RuntimeException('user not found');
+                }
+                if ((float)$latestUser['balance'] < $num) {
                     throw new \RuntimeException('balance not enough');
                 }
+                Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+                    'balance' => round((float)$latestUser['balance'] - $num, 2),
+                    'freeze_balance' => round((float)($latestUser['freeze_balance'] ?? 0) + $num, 2),
+                    'update_time' => $now,
+                ]);
                 Db::name('miniapp_withdraw')->insert([
                     'user_id'      => (int)$user['id'],
                     'withdraw_no'  => $withdrawNo,
                     'type'         => $type,
                     'amount'       => $num,
-                    'status'       => 1,
+                    'status'       => 0,
                     'create_time'  => $now,
                     'update_time'  => $now,
-                ]);
-                Db::name('miniapp_finance_log')->insert([
-                    'user_id'          => (int)$user['id'],
-                    'type'             => 7,
-                    'amount'           => -$num,
-                    'balance_after'    => (float)$user['balance'] - $num,
-                    'related_order_no' => $withdrawNo,
-                    'remark'           => 'withdraw apply',
-                    'create_time'      => $now,
                 ]);
                 Db::commit();
             } catch (\Throwable $e) {
@@ -671,16 +670,12 @@ class Miniapp extends Api
             $user = $this->getMiniappUser();
             $pwd = (string)$this->request->post('pwd', $this->request->param('pwd', ''));
             $pwdNew = (string)$this->request->post('pwd_new', $this->request->param('pwd_new', ''));
-            $pwdNewConfirm = (string)$this->request->post('pwd_new_confirm', $this->request->param('pwd_new_confirm', ''));
             $address = (string)$this->request->post('address', $this->request->param('address', ''));
-            if ($pwd === '' || $pwdNew === '' || $pwdNewConfirm === '') {
+            if ($pwd === '' || $pwdNew === '') {
                 $this->apiError(__('miniapp.param_error'), null, 400);
             }
-            if (md5($pwd) !== (string)$user['password']) {
-                $this->apiError(__('miniapp.password_error'), null, 400);
-            }
-            if ($pwdNew !== $pwdNewConfirm) {
-                $this->apiError(__('miniapp.password_confirm_failed'), null, 400);
+            if (md5($pwd) !== (string)$user['cash_password']) {
+                $this->apiError(__('miniapp.cash_password_error'), null, 400);
             }
             $now = time();
             Db::name('miniapp_user')->where('id', (int)$user['id'])->update(['cash_password' => md5($pwdNew), 'update_time' => $now]);

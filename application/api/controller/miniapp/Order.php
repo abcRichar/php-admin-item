@@ -42,16 +42,22 @@ class Order extends MiniappBase
     return $items[$index] ?? end($items);
   }
 
-  protected function resolveCommission($amount, $defaultRate, $profile)
+  protected function resolveCommission($amount, $defaultRate, $profile, $goodsDefaultCommissionRate = 0)
   {
+    $isUserSpecialRule = isset($profile['from_rule']) && $profile['from_rule'] === 'user';
     $fixedCommission = isset($profile['fixed_commission']) ? (float)$profile['fixed_commission'] : 0;
-    if ($fixedCommission > 0) {
+    if ($isUserSpecialRule && $fixedCommission > 0) {
       return round($fixedCommission, 2);
     }
 
     $commissionRate = isset($profile['commission_rate']) ? (float)$profile['commission_rate'] : 0;
-    if ($commissionRate > 0) {
+    if ($isUserSpecialRule && $commissionRate > 0) {
       return round($amount * $commissionRate / 100, 2);
+    }
+
+    $goodsDefaultCommissionRate = (float)$goodsDefaultCommissionRate;
+    if ($goodsDefaultCommissionRate > 0) {
+      return round($amount * $goodsDefaultCommissionRate / 100, 2);
     }
 
     return round($amount * (float)$defaultRate, 2);
@@ -193,7 +199,7 @@ class Order extends MiniappBase
       'goods_count' => $goodsCount,
       'goods_price' => $goodsPrice,
       'amount' => $amount,
-      'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile),
+      'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile, (float)($goods['default_commission_rate'] ?? 0)),
     ];
   }
 
@@ -256,9 +262,11 @@ class Order extends MiniappBase
     }
 
     $userInfo = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->find();
+    $today_start = $this->getBusinessTodayStartTime();
     $completedCount = (int)Db::name('miniapp_order')
       ->where('user_id', (int)$user['id'])
       ->where('status', 2)
+      ->where('complete_time', '>=', $today_start)
       ->count();
 
     $orderData = $this->buildPreviewOrderData($user, $goods, $dispatchPlan, $todayDan, $language);
@@ -400,9 +408,11 @@ class Order extends MiniappBase
       // 查用户资料
       $userInfo = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->find();
 
+      $today_start = $this->getBusinessTodayStartTime();
       $completedCount = (int)Db::name('miniapp_order')
         ->where('user_id', (int)$user['id'])
         ->where('status', 2)
+        ->where('complete_time', '>=', $today_start)
         ->count();
 
       $yuji = (float)$record['num'] + (float)$record['commission'];

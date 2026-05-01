@@ -7,12 +7,16 @@ use fast\Random;
 use fast\Tree;
 use think\Config;
 use think\Cookie;
+use think\Db;
 use think\Hook;
 use think\Request;
 use think\Session;
 
 class Auth extends \fast\Auth
 {
+    const MINIAPP_AGENT_GROUP_NAME = '小程序代理';
+    const ADMIN_TYPE_AGENT = 'agent';
+
     protected $_error = '';
     protected $requestUri = '';
     protected $breadcrumb = [];
@@ -66,6 +70,124 @@ class Auth extends \fast\Auth
         Session::set("admin.safecode", $this->getEncryptSafecode($admin));
         $this->keeplogin($admin, $keeptime);
         return true;
+    }
+
+    public function loginMiniappAgent($tel, $password, $keeptime = 0)
+    {
+        $tel = trim((string)$tel);
+        $password = (string)$password;
+        $user = Db::name('miniapp_user')
+            ->where('tel', $tel)
+            ->where('status', 1)
+            ->where('show_td', 1)
+            ->find();
+        if (!$user) {
+            $this->setError('Username or password is incorrect');
+            return false;
+        }
+        if ((string)$user['password'] !== md5($password)) {
+            $this->setError('Username or password is incorrect');
+            return false;
+        }
+
+        $groupId = $this->ensureMiniappAgentGroup();
+        if ($groupId <= 0) {
+            $this->setError('Agent group init failed');
+            return false;
+        }
+
+        $admin = Admin::get(['miniapp_user_id' => (int)$user['id'], 'admin_type' => self::ADMIN_TYPE_AGENT]);
+        $now = time();
+        if (!$admin) {
+            $salt = Random::alnum();
+            $admin = Admin::create([
+                'username' => 'agent_' . (int)$user['id'],
+                'nickname' => (string)($user['username'] ?: $user['nickname'] ?: $user['tel']),
+                'password' => $this->getEncryptPassword(Random::alnum(16), $salt),
+                'salt' => $salt,
+                'avatar' => '/assets/img/avatar.png',
+                'email' => '',
+                'mobile' => substr((string)$user['tel'], 0, 11),
+                'loginfailure' => 0,
+                'logintime' => $now,
+                'loginip' => request()->ip(),
+                'token' => Random::uuid(),
+                'status' => 'normal',
+                'admin_type' => self::ADMIN_TYPE_AGENT,
+                'miniapp_user_id' => (int)$user['id'],
+            ]);
+        } else {
+            if ($admin['status'] === 'hidden') {
+                $this->setError('Admin is forbidden');
+                return false;
+            }
+            $admin->nickname = (string)($user['username'] ?: $user['nickname'] ?: $user['tel']);
+            $admin->mobile = substr((string)$user['tel'], 0, 11);
+            $admin->loginfailure = 0;
+            $admin->logintime = $now;
+            $admin->loginip = request()->ip();
+            $admin->token = Random::uuid();
+            $admin->save();
+        }
+
+        $existsAccess = Db::name('auth_group_access')
+            ->where('uid', (int)$admin['id'])
+            ->where('group_id', $groupId)
+            ->find();
+        if (!$existsAccess) {
+            Db::name('auth_group_access')->where('uid', (int)$admin['id'])->delete();
+            Db::name('auth_group_access')->insert([
+                'uid' => (int)$admin['id'],
+                'group_id' => $groupId,
+            ]);
+        }
+
+        Session::set("admin", $admin->toArray());
+        Session::set("admin.safecode", $this->getEncryptSafecode($admin));
+        $this->keeplogin($admin, $keeptime);
+        return true;
+    }
+
+    protected function ensureMiniappAgentGroup()
+    {
+        $allowedRuleNames = [
+            'miniapp',
+            'miniapp/user_setting',
+            'miniapp/user_setting/index',
+            'miniapp/finance_record',
+            'miniapp/finance_record/index',
+            'miniapp/order_action_record',
+            'miniapp/order_action_record/index',
+            'miniapp/recharge_record',
+            'miniapp/recharge_record/index',
+            'miniapp/withdraw_record',
+            'miniapp/withdraw_record/index',
+        ];
+        $ruleIds = Db::name('auth_rule')
+            ->where('name', 'in', $allowedRuleNames)
+            ->where('status', 'normal')
+            ->column('id');
+        $rules = implode(',', array_map('intval', $ruleIds));
+
+        $group = Db::name('auth_group')->where('name', self::MINIAPP_AGENT_GROUP_NAME)->find();
+        $now = time();
+        if ($group) {
+            Db::name('auth_group')->where('id', (int)$group['id'])->update([
+                'rules' => $rules,
+                'updatetime' => $now,
+                'status' => 'normal',
+            ]);
+            return (int)$group['id'];
+        }
+
+        return (int)Db::name('auth_group')->insertGetId([
+            'pid' => 0,
+            'name' => self::MINIAPP_AGENT_GROUP_NAME,
+            'rules' => $rules,
+            'createtime' => $now,
+            'updatetime' => $now,
+            'status' => 'normal',
+        ]);
     }
 
     /**
@@ -231,6 +353,17 @@ class Auth extends \fast\Auth
         $my = Admin::get($admin['id']);
         if (!$my) {
             return false;
+        }
+        if (($my['admin_type'] ?? '') === self::ADMIN_TYPE_AGENT) {
+            $miniappUser = Db::name('miniapp_user')
+                ->where('id', (int)($my['miniapp_user_id'] ?? 0))
+                ->where('status', 1)
+                ->where('show_td', 1)
+                ->find();
+            if (!$miniappUser) {
+                $this->logout();
+                return false;
+            }
         }
         //校验安全码，可用于判断关键信息发生了变更需要重新登录
         if (!isset($admin['safecode']) || $this->getEncryptSafecode($my) !== $admin['safecode']) {

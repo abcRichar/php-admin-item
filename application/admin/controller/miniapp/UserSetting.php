@@ -16,6 +16,7 @@ class UserSetting extends Backend
     protected $searchFields = 'id,tel,username,nickname,invite_code';
     protected $noNeedRight = ['selectpage'];
     const FINANCE_TYPE_ADMIN_RECHARGE = 8;
+    const PAY_CONFIG_DEFAULT_TYPE = 'USDT-TRC20';
 
     public function _initialize()
     {
@@ -33,18 +34,33 @@ class UserSetting extends Backend
             }
 
             list($where, $sort, $order, $offset, $limit) = $this->buildparams();
-            $list = $this->model
-                ->where($where)
-                ->order($sort, $order)
-                ->paginate($limit);
+            $query = $this->model->where($where);
+            $this->applyMiniappAgentUserScope($query);
+            $list = $query->order($sort, $order)->paginate($limit);
 
-            foreach ($list as $row) {
-                $row['display_name'] = (string)($row['username'] ?: $row['nickname'] ?: $row['tel']);
+            $items = $list->items();
+            $userIds = [];
+            $parentIds = [];
+            foreach ($items as $row) {
+                $userIds[] = (int)$row['id'];
+                if (!empty($row['parent_id'])) {
+                    $parentIds[] = (int)$row['parent_id'];
+                }
+            }
+            $rechargeAddressMap = $this->getRechargeAddressMap($userIds);
+            $parentAccountMap = $this->getParentAccountMap($parentIds);
+
+            foreach ($items as $row) {
+                $parentAccount = $parentAccountMap[(int)($row['parent_id'] ?? 0)] ?? '--';
+                $row['display_name'] = $parentAccount;
+                $row['parent_account'] = $parentAccount;
+                $row['recharge_address'] = $rechargeAddressMap[(int)$row['id']] ?? '';
+                $row['agent_enabled'] = (int)($row['show_td'] ?? 0);
             }
 
             return json([
                 'total' => $list->total(),
-                'rows'  => $list->items(),
+                'rows'  => $items,
             ]);
         }
 
@@ -57,8 +73,11 @@ class UserSetting extends Backend
         if (!$row) {
             $this->error(__('No Results were found'));
         }
+        $this->assertMiniappAgentCanAccessUser((int)$row['id']);
 
         if (!$this->request->isPost()) {
+            $row['parent_account'] = $this->getParentAccount((int)($row['parent_id'] ?? 0));
+            $row['recharge_address'] = $this->getUserRechargeAddress((int)$row['id']);
             $this->view->assign('row', $row);
             return $this->view->fetch();
         }
@@ -69,16 +88,24 @@ class UserSetting extends Backend
         }
 
         $saveData = $this->normalizeSettingParams($params);
-        $result = $row->allowField([
-            'template_name',
-            'dispatch_order',
-            'commission_rate',
-            'fixed_commission',
-            'dispatch_amount',
-        ])->save($saveData);
-
-        if ($result === false) {
-            $this->error(__('No rows were updated'));
+        Db::startTrans();
+        try {
+            $result = $row->allowField([
+                'template_name',
+                'dispatch_order',
+                'commission_rate',
+                'fixed_commission',
+                'dispatch_amount',
+                'show_td',
+            ])->save($saveData);
+            if ($result === false) {
+                throw new \RuntimeException(__('No rows were updated'));
+            }
+            $this->saveRechargeAddress((int)$row['id'], (string)$saveData['recharge_address']);
+            Db::commit();
+        } catch (\Throwable $e) {
+            Db::rollback();
+            $this->error($e->getMessage());
         }
 
         $this->success();
@@ -92,7 +119,145 @@ class UserSetting extends Backend
             'commission_rate'  => $this->normalizeSequenceValue($params['commission_rate'] ?? '', 'number'),
             'fixed_commission' => $this->normalizeSequenceValue($params['fixed_commission'] ?? '', 'number'),
             'dispatch_amount'  => $this->normalizeSequenceValue($params['dispatch_amount'] ?? '', 'number'),
+            'show_td'          => !empty($params['show_td']) ? 1 : 0,
+            'recharge_address' => trim((string)($params['recharge_address'] ?? '')),
         ];
+    }
+
+    protected function buildParentDisplayName($row)
+    {
+        $parentUsername = trim((string)($row['parent_username'] ?? ''));
+        if ($parentUsername !== '') {
+            return $parentUsername;
+        }
+        $parentNickname = trim((string)($row['parent_nickname'] ?? ''));
+        if ($parentNickname !== '') {
+            return $parentNickname;
+        }
+        $parentTel = trim((string)($row['parent_tel'] ?? ''));
+        if ($parentTel !== '') {
+            return $parentTel;
+        }
+        return '--';
+    }
+
+    protected function getParentAccountMap(array $parentIds)
+    {
+        $parentIds = array_values(array_unique(array_filter(array_map('intval', $parentIds))));
+        if (!$parentIds) {
+            return [];
+        }
+
+        $rows = Db::name('miniapp_user')
+            ->where('id', 'in', $parentIds)
+            ->field('id,tel,username,nickname')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = $this->buildParentDisplayName([
+                'parent_username' => $row['username'] ?? '',
+                'parent_nickname' => $row['nickname'] ?? '',
+                'parent_tel'      => $row['tel'] ?? '',
+            ]);
+        }
+
+        return $map;
+    }
+
+    protected function getParentAccount($parentId)
+    {
+        $parentId = (int)$parentId;
+        if ($parentId <= 0) {
+            return '--';
+        }
+
+        $map = $this->getParentAccountMap([$parentId]);
+        return $map[$parentId] ?? '--';
+    }
+
+    protected function getRechargeAddressMap(array $userIds)
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if (!$userIds) {
+            return [];
+        }
+
+        $rows = Db::name('miniapp_pay_config')
+            ->where('user_id', 'in', $userIds)
+            ->where('status', 1)
+            ->order('sort desc,id desc')
+            ->field('user_id,usercode')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $userId = (int)$row['user_id'];
+            if (!isset($map[$userId])) {
+                $map[$userId] = (string)$row['usercode'];
+            }
+        }
+
+        return $map;
+    }
+
+    protected function getUserRechargeAddress($userId)
+    {
+        if ($userId <= 0) {
+            return '';
+        }
+
+        $row = Db::name('miniapp_pay_config')
+            ->where('user_id', $userId)
+            ->where('status', 1)
+            ->order('sort desc,id desc')
+            ->field('usercode')
+            ->find();
+
+        return $row ? (string)$row['usercode'] : '';
+    }
+
+    protected function saveRechargeAddress($userId, $rechargeAddress)
+    {
+        $userId = (int)$userId;
+        if ($userId <= 0) {
+            return;
+        }
+
+        $now = time();
+        $existing = Db::name('miniapp_pay_config')
+            ->where('user_id', $userId)
+            ->order('id desc')
+            ->find();
+
+        if ($rechargeAddress === '') {
+            if ($existing) {
+                Db::name('miniapp_pay_config')->where('id', (int)$existing['id'])->update([
+                    'status' => 0,
+                    'update_time' => $now,
+                ]);
+            }
+            return;
+        }
+
+        if ($existing) {
+            Db::name('miniapp_pay_config')->where('id', (int)$existing['id'])->update([
+                'usercode' => $rechargeAddress,
+                'status' => 1,
+                'update_time' => $now,
+            ]);
+            return;
+        }
+
+        Db::name('miniapp_pay_config')->insert([
+            'user_id' => $userId,
+            'usercode' => $rechargeAddress,
+            'type' => self::PAY_CONFIG_DEFAULT_TYPE,
+            'status' => 1,
+            'sort' => 100,
+            'create_time' => $now,
+            'update_time' => $now,
+        ]);
     }
 
     protected function normalizeSequenceValue($value, $type = 'number')
@@ -136,6 +301,9 @@ class UserSetting extends Backend
 
     public function selectpage()
     {
+        if ($this->isMiniappAgentAdmin()) {
+            $this->error(__('You have no permission'), '');
+        }
         return parent::selectpage();
     }
 
@@ -145,6 +313,7 @@ class UserSetting extends Backend
         if (!$row) {
             $this->error(__('No Results were found'));
         }
+        $this->assertMiniappAgentCanAccessUser((int)$row['id']);
 
         if (!$this->request->isPost()) {
             $this->view->assign('row', $row);
@@ -210,6 +379,7 @@ class UserSetting extends Backend
         if (!$row) {
             $this->error(__('No Results were found'));
         }
+        $this->assertMiniappAgentCanAccessUser((int)$row['id']);
 
         if (!$this->request->isPost()) {
             $this->view->assign('row', $row);

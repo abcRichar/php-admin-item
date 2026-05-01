@@ -63,7 +63,6 @@ class My extends MiniappBase
       $user = $this->getMiniappUser();
       $pwd    = (string)$this->request->param('pwd', '');
       $pwdNew = (string)$this->request->param('pwd_new', '');
-      $address = (string)$this->request->param('address', '');
       $usdtDiz = (string)$this->request->param('usdt_diz', '');
 
       if ($pwd === '') {
@@ -78,7 +77,6 @@ class My extends MiniappBase
       try {
         $exists = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->lock(true)->find();
         $updateData = ['update_time' => $now];
-        if ($address !== '') $updateData['address'] = $address;
         if ($usdtDiz !== '') $updateData['usdt_diz'] = $usdtDiz;
 
         if ($exists) {
@@ -96,7 +94,7 @@ class My extends MiniappBase
         }
         Db::name('miniapp_user_info_save_log')->insert([
           'user_id' => (int)$user['id'],
-          'address' => $address,
+          'address' => '',
           'has_new_pwd' => $pwdNew !== '' ? 1 : 0,
           'create_time' => $now,
         ]);
@@ -174,27 +172,48 @@ class My extends MiniappBase
       $user = $this->getMiniappUser();
       $pwd = (string)$this->request->param('pwd', '');
       $pwdNew = (string)$this->request->param('pwd_new', '');
-      $pwdNewConfirm = (string)$this->request->param('pwd_new_confirm', '');
       $address = (string)$this->request->param('address', '');
-      if ($pwd === '' || $pwdNew === '' || $pwdNewConfirm === '') {
+      if ($pwd === '' || $pwdNew === '') {
         $this->apiError(__('miniapp.param_error'), null, 400);
       }
-      if (md5($pwd) !== (string)$user['password']) {
-        $this->apiError(__('miniapp.password_error'), null, 400);
-      }
-      if ($pwdNew !== $pwdNewConfirm) {
-        $this->apiError(__('miniapp.password_confirm_failed'), null, 400);
+      if (md5($pwd) !== (string)$user['cash_password']) {
+        $this->apiError(__('miniapp.cash_password_error'), null, 400);
       }
       $now = time();
-      Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
-        'cash_password' => md5($pwdNew),
-        'update_time' => $now
-      ]);
-      Db::name('miniapp_cashpwd_log')->insert([
-        'user_id' => (int)$user['id'],
-        'address' => $address,
-        'create_time' => $now
-      ]);
+      Db::startTrans();
+      try {
+        Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+          'cash_password' => md5($pwdNew),
+          'update_time' => $now
+        ]);
+
+        if ($address !== '') {
+          $exists = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->lock(true)->find();
+          if ($exists) {
+            Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->update([
+              'address' => $address,
+              'update_time' => $now,
+            ]);
+          } else {
+            Db::name('miniapp_user_info')->insert([
+              'user_id' => (int)$user['id'],
+              'address' => $address,
+              'create_time' => $now,
+              'update_time' => $now,
+            ]);
+          }
+        }
+
+        Db::name('miniapp_cashpwd_log')->insert([
+          'user_id' => (int)$user['id'],
+          'address' => $address,
+          'create_time' => $now
+        ]);
+        Db::commit();
+      } catch (\Throwable $e) {
+        Db::rollback();
+        $this->apiError(__('miniapp.operation_failed'), null, 500);
+      }
       $this->logRequest((int)$user['id']);
       $this->apiSuccess(__('miniapp.success'));
     });

@@ -259,7 +259,7 @@
 ## 12. 保存用户资料 my/uinfoSave
 - 路径：`POST /miniapp/my/uinfoSave`
 - Header：`token` 必填
-- 入参：`pwd`（必填）, `pwd_new`（可选）, `address`（可选）, `usdt_diz`（可选）
+- 入参：`pwd`（必填）, `pwd_new`（可选）, `usdt_diz`（可选）
 - 逻辑：验证登录密码
 - 返回：成功返回 `null`
 
@@ -291,8 +291,8 @@
 ## 14. 设置资金密码 my/setCashPwd
 - 路径：`POST /miniapp/my/setCashPwd`
 - Header：`token` 必填
-- 入参：`pwd`, `pwd_new`, `pwd_new_confirm`, `address`（可选）
-- 逻辑：验证登录密码，确认新密码一致
+- 入参：`pwd`, `pwd_new`, `address`（可选）
+- 逻辑：验证原资金密码后设置新资金密码
 - 返回：成功返回 `null`
 
 ## 15. 设置语言 support/setLanguage

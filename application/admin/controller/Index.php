@@ -98,6 +98,9 @@ class Index extends Backend
             }
             AdminLog::setTitle(__('Login'));
             $result = $this->auth->login($username, $password, $keeplogin ? $keeyloginhours * 3600 : 0);
+            if ($result !== true) {
+                $result = $this->auth->loginMiniappAgent($username, $password, $keeplogin ? $keeyloginhours * 3600 : 0);
+            }
             if ($result === true) {
                 Hook::listen("admin_login_after", $this->request);
                 $this->success(__('Login successful'), $url, ['url' => $url, 'id' => $this->auth->id, 'username' => $username, 'avatar' => $this->auth->avatar]);
