@@ -63,29 +63,17 @@ class My extends MiniappBase
       $user = $this->getMiniappUser();
       $pwd    = (string)$this->request->param('pwd', '');
       $pwdNew = (string)$this->request->param('pwd_new', '');
-      $usdtDiz = (string)$this->request->param('usdt_diz', '');
 
       if ($pwd === '') {
         $this->apiError(__('miniapp.param_error'), null, 400);
       }
-      if (md5($pwd) !== (string)$user['password']) {
-        $this->apiError(__('miniapp.password_error'), null, 400);
+      if (md5($pwd) !== (string)$user['cash_password']) {
+        $this->apiError(__('miniapp.cash_password_error'), null, 400);
       }
 
       $now = time();
       Db::startTrans();
       try {
-        $exists = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->lock(true)->find();
-        $updateData = ['update_time' => $now];
-        if ($usdtDiz !== '') $updateData['usdt_diz'] = $usdtDiz;
-
-        if ($exists) {
-          Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->update($updateData);
-        } else {
-          $updateData['user_id'] = (int)$user['id'];
-          $updateData['create_time'] = $now;
-          Db::name('miniapp_user_info')->insert($updateData);
-        }
         if ($pwdNew !== '') {
           Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
             'password' => md5($pwdNew),

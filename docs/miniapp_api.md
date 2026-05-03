@@ -259,8 +259,8 @@
 ## 12. 保存用户资料 my/uinfoSave
 - 路径：`POST /miniapp/my/uinfoSave`
 - Header：`token` 必填
-- 入参：`pwd`（必填）, `pwd_new`（可选）, `usdt_diz`（可选）
-- 逻辑：验证登录密码
+- 入参：`pwd`（必填，提款/资金密码）, `pwd_new`（可选，新登录密码，空则不修改）
+- 逻辑：验证提款/资金密码；`pwd_new` 不为空时修改登录密码
 - 返回：成功返回 `null`
 
 ## 13. 资金流水 my/caiwu

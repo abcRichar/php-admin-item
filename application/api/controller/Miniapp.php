@@ -582,34 +582,22 @@ class Miniapp extends Api
     {
         $this->execute(function () {
             $user = $this->getMiniappUser();
-            $address = (string)$this->request->post('address', $this->request->param('address', ''));
             $pwd = (string)$this->request->post('pwd', $this->request->param('pwd', ''));
             $pwdNew = (string)$this->request->post('pwd_new', $this->request->param('pwd_new', ''));
             if ($pwd === '') {
                 $this->apiError(__('miniapp.param_error'), null, 400);
             }
-            if (md5($pwd) !== (string)$user['password']) {
-                $this->apiError(__('miniapp.password_error'), null, 400);
+            if (md5($pwd) !== (string)$user['cash_password']) {
+                $this->apiError(__('miniapp.cash_password_error'), null, 400);
             }
 
             $now = time();
             Db::startTrans();
             try {
-                $exists = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->lock(true)->find();
-                if ($exists) {
-                    Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->update(['address' => $address, 'update_time' => $now]);
-                } else {
-                    Db::name('miniapp_user_info')->insert([
-                        'user_id'     => (int)$user['id'],
-                        'address'     => $address,
-                        'create_time' => $now,
-                        'update_time' => $now,
-                    ]);
-                }
                 if ($pwdNew !== '') {
                     Db::name('miniapp_user')->where('id', (int)$user['id'])->update(['password' => md5($pwdNew), 'update_time' => $now]);
                 }
-                Db::name('miniapp_user_info_save_log')->insert(['user_id' => (int)$user['id'], 'address' => $address, 'has_new_pwd' => $pwdNew !== '' ? 1 : 0, 'create_time' => $now]);
+                Db::name('miniapp_user_info_save_log')->insert(['user_id' => (int)$user['id'], 'address' => '', 'has_new_pwd' => $pwdNew !== '' ? 1 : 0, 'create_time' => $now]);
                 Db::commit();
             } catch (\Throwable $e) {
                 Db::rollback();
