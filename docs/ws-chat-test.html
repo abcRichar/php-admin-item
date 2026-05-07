@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>聊天室 WebSocket 测试</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "Microsoft YaHei", sans-serif;
+      color: #1f2937;
+      background: #f3f4f6;
+    }
+
+    .page {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 24px auto;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.3;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 112px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 14px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9ca3af;
+    }
+
+    .status.connected .dot {
+      background: #16a34a;
+    }
+
+    .status.authenticated .dot {
+      background: #2563eb;
+    }
+
+    .status.error .dot {
+      background: #dc2626;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      margin: 0;
+      padding: 12px 14px;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 15px;
+      background: #f9fafb;
+    }
+
+    .panel-body {
+      padding: 14px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #4b5563;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font: inherit;
+      color: #111827;
+      background: #fff;
+      outline: none;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    button {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font: inherit;
+      color: #111827;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) {
+      background: #f8fafc;
+    }
+
+    button.primary {
+      border-color: #2563eb;
+      color: #fff;
+      background: #2563eb;
+    }
+
+    button.primary:hover:not(:disabled) {
+      background: #1d4ed8;
+    }
+
+    button.danger {
+      border-color: #dc2626;
+      color: #dc2626;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    .checkbox input {
+      width: auto;
+    }
+
+    .log {
+      height: 520px;
+      overflow: auto;
+      padding: 0;
+      background: #0f172a;
+      color: #dbeafe;
+      font-family: Consolas, Monaco, "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .log-line {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .log-line.send {
+      color: #bbf7d0;
+    }
+
+    .log-line.recv {
+      color: #bfdbfe;
+    }
+
+    .log-line.warn {
+      color: #fde68a;
+    }
+
+    .log-line.err {
+      color: #fecaca;
+    }
+
+    .hint {
+      margin-top: 10px;
+      color: #6b7280;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 860px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .status {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="header">
+      <h1>聊天室 WebSocket 测试</h1>
+      <div id="status" class="status">
+        <span class="dot"></span>
+        <span id="statusText">未连接</span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2 class="panel-title">连接配置</h2>
+        <div class="panel-body">
+          <div class="field">
+            <label for="wsUrl">WebSocket 地址</label>
+            <input id="wsUrl" value="ws://127.0.0.1:8282/room/1" placeholder="ws://127.0.0.1:8282/room/1">
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="actorType">身份类型</label>
+              <select id="actorType">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="heartbeatInterval">心跳秒数</label>
+              <input id="heartbeatInterval" type="number" min="5" step="1" value="25">
+            </div>
+          </div>
+
+          <div class="field" id="tokenField">
+            <label for="token">用户 token</label>
+            <input id="token" placeholder="用户登录 token">
+          </div>
+
+          <div class="field" id="ticketField" style="display:none">
+            <label for="ticket">后台 ticket</label>
+            <input id="ticket" placeholder="后台临时鉴权 ticket">
+          </div>
+
+          <label class="checkbox">
+            <input id="autoAuth" type="checkbox" checked>
+            连接成功后自动发送鉴权
+          </label>
+
+          <label class="checkbox" style="margin-top:8px">
+            <input id="autoPing" type="checkbox" checked>
+            鉴权成功后自动 ping
+          </label>
+
+          <div class="actions">
+            <button id="connectBtn" class="primary" type="button">连接</button>
+            <button id="authBtn" type="button" disabled>发送鉴权</button>
+            <button id="pingBtn" type="button" disabled>发送 ping</button>
+            <button id="closeBtn" class="danger" type="button" disabled>断开</button>
+          </div>
+
+          <p class="hint">用户鉴权发送 <code>{"type":"auth","actor_type":"user","token":"..."}</code>，后台鉴权发送 <code>ticket</code>。</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">消息测试</h2>
+        <div class="panel-body">
+          <div class="field">
+            <label for="message">消息内容</label>
+            <textarea id="message" placeholder="输入要发送的聊天消息"></textarea>
+          </div>
+          <div class="actions">
+            <button id="sendBtn" class="primary" type="button" disabled>发送消息</button>
+            <button id="clearBtn" type="button">清空日志</button>
+          </div>
+        </div>
+        <div id="log" class="log" aria-live="polite"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const els = {
+      wsUrl: document.getElementById('wsUrl'),
+      actorType: document.getElementById('actorType'),
+      token: document.getElementById('token'),
+      ticket: document.getElementById('ticket'),
+      tokenField: document.getElementById('tokenField'),
+      ticketField: document.getElementById('ticketField'),
+      heartbeatInterval: document.getElementById('heartbeatInterval'),
+      autoAuth: document.getElementById('autoAuth'),
+      autoPing: document.getElementById('autoPing'),
+      message: document.getElementById('message'),
+      connectBtn: document.getElementById('connectBtn'),
+      authBtn: document.getElementById('authBtn'),
+      pingBtn: document.getElementById('pingBtn'),
+      closeBtn: document.getElementById('closeBtn'),
+      sendBtn: document.getElementById('sendBtn'),
+      clearBtn: document.getElementById('clearBtn'),
+      status: document.getElementById('status'),
+      statusText: document.getElementById('statusText'),
+      log: document.getElementById('log')
+    };
+
+    let socket = null;
+    let authed = false;
+    let heartbeatTimer = null;
+
+    function nowText() {
+      return new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    }
+
+    function log(type, message, data) {
+      const line = document.createElement('div');
+      line.className = 'log-line ' + type;
+      const payload = data === undefined ? '' : '\n' + JSON.stringify(data, null, 2);
+      line.textContent = '[' + nowText() + '] ' + message + payload;
+      els.log.appendChild(line);
+      els.log.scrollTop = els.log.scrollHeight;
+    }
+
+    function setStatus(state, text) {
+      els.status.className = 'status ' + (state || '');
+      els.statusText.textContent = text;
+    }
+
+    function setButtons() {
+      const opened = socket && socket.readyState === WebSocket.OPEN;
+      els.connectBtn.disabled = !!socket && socket.readyState === WebSocket.CONNECTING;
+      els.authBtn.disabled = !opened;
+      els.pingBtn.disabled = !opened;
+      els.closeBtn.disabled = !socket;
+      els.sendBtn.disabled = !opened || !authed;
+    }
+
+    function parseJsonSafely(text) {
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function sendPacket(packet) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log('warn', '连接未打开，无法发送');
+        return false;
+      }
+      socket.send(JSON.stringify(packet));
+      log('send', '发送', packet);
+      return true;
+    }
+
+    function buildAuthPacket() {
+      const actorType = els.actorType.value;
+      if (actorType === 'admin') {
+        return {
+          type: 'auth',
+          actor_type: 'admin',
+          ticket: els.ticket.value.trim()
+        };
+      }
+      return {
+        type: 'auth',
+        actor_type: 'user',
+        token: els.token.value.trim()
+      };
+    }
+
+    function sendAuth() {
+      sendPacket(buildAuthPacket());
+    }
+
+    function sendPing() {
+      sendPacket({ type: 'ping' });
+    }
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      if (!els.autoPing.checked) {
+        return;
+      }
+      const seconds = Math.max(5, Number(els.heartbeatInterval.value) || 25);
+      heartbeatTimer = window.setInterval(() => {
+        if (!socket || socket.readyState !== WebSocket.OPEN || !authed) {
+          stopHeartbeat();
+          return;
+        }
+        sendPing();
+      }, seconds * 1000);
+      log('warn', '自动 ping 已开启：' + seconds + ' 秒一次');
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatTimer) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    }
+
+    function connect() {
+      closeSocket(false);
+      authed = false;
+      setStatus('', '连接中');
+      setButtons();
+
+      const url = els.wsUrl.value.trim();
+      if (!url) {
+        setStatus('error', '地址为空');
+        log('err', 'WebSocket 地址不能为空');
+        setButtons();
+        return;
+      }
+
+      try {
+        socket = new WebSocket(url);
+      } catch (e) {
+        socket = null;
+        setStatus('error', '连接失败');
+        log('err', '创建 WebSocket 失败：' + e.message);
+        setButtons();
+        return;
+      }
+
+      socket.addEventListener('open', () => {
+        setStatus('connected', '已连接');
+        log('warn', '连接已打开：' + url);
+        setButtons();
+        if (els.autoAuth.checked) {
+          sendAuth();
+        }
+      });
+
+      socket.addEventListener('message', event => {
+        const packet = parseJsonSafely(event.data);
+        log('recv', '收到', packet || event.data);
+
+        if (!packet || typeof packet !== 'object') {
+          return;
+        }
+
+        if (packet.type === 'auth') {
+          authed = Number(packet.code) === 1;
+          setStatus(authed ? 'authenticated' : 'error', authed ? '已鉴权' : '鉴权失败');
+          setButtons();
+          if (authed) {
+            startHeartbeat();
+          }
+          return;
+        }
+
+        if (packet.type === 'pong') {
+          log('warn', '收到 pong');
+        }
+      });
+
+      socket.addEventListener('close', event => {
+        const reason = event.reason ? '，原因：' + event.reason : '';
+        log('warn', '连接已关闭：code=' + event.code + reason);
+        socket = null;
+        authed = false;
+        stopHeartbeat();
+        setStatus('', '未连接');
+        setButtons();
+      });
+
+      socket.addEventListener('error', () => {
+        log('err', 'WebSocket 发生错误');
+        setStatus('error', '连接错误');
+        setButtons();
+      });
+    }
+
+    function closeSocket(shouldLog) {
+      stopHeartbeat();
+      authed = false;
+      if (socket) {
+        const current = socket;
+        socket = null;
+        current.close();
+      }
+      setStatus('', '未连接');
+      setButtons();
+      if (shouldLog) {
+        log('warn', '已主动断开');
+      }
+    }
+
+    function sendMessage() {
+      const content = els.message.value.trim();
+      if (!content) {
+        log('warn', '消息内容不能为空');
+        return;
+      }
+      sendPacket({
+        type: 'message',
+        content: content
+      });
+    }
+
+    els.actorType.addEventListener('change', () => {
+      const isAdmin = els.actorType.value === 'admin';
+      els.tokenField.style.display = isAdmin ? 'none' : '';
+      els.ticketField.style.display = isAdmin ? '' : 'none';
+    });
+    els.connectBtn.addEventListener('click', connect);
+    els.authBtn.addEventListener('click', sendAuth);
+    els.pingBtn.addEventListener('click', sendPing);
+    els.closeBtn.addEventListener('click', () => closeSocket(true));
+    els.sendBtn.addEventListener('click', sendMessage);
+    els.clearBtn.addEventListener('click', () => {
+      els.log.innerHTML = '';
+    });
+    els.message.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        sendMessage();
+      }
+    });
+
+    setButtons();
+    log('warn', '测试页已加载');
+  </script>
+</body>
+</html>

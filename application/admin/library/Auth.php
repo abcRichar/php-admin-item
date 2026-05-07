@@ -162,6 +162,12 @@ class Auth extends \fast\Auth
             'miniapp/recharge_record/index',
             'miniapp/withdraw_record',
             'miniapp/withdraw_record/index',
+            'miniapp/chat_record',
+            'miniapp/chat_record/index',
+            'miniapp/chat_room',
+            'miniapp/chat_room/index',
+            'miniapp/chat_room/messages',
+            'miniapp/chat_room/wsticket',
         ];
         $ruleIds = Db::name('auth_rule')
             ->where('name', 'in', $allowedRuleNames)

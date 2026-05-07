@@ -18,6 +18,9 @@ return [
     // 小程序模块化路由（miniapp/子控制器/方法）
     'miniapp/support/index'          => 'api/miniapp.support/index',
     'miniapp/support/setLanguage'    => 'api/miniapp.support/setLanguage',
+    'miniapp/chat/rooms'             => 'api/miniapp.chat/rooms',
+    'miniapp/chat/messages'          => 'api/miniapp.chat/messages',
+    'miniapp/chat/wsConfig'          => 'api/miniapp.chat/wsConfig',
     'miniapp/user/do_login'          => 'api/miniapp.user/do_login',
     'miniapp/user/do_register'       => 'api/miniapp.user/do_register',
     'miniapp/user/logout'            => 'api/miniapp.user/logout',

@@ -31,4 +31,5 @@ return [
     'miniapp.lang_name_en'            => 'English',
     'miniapp.has_undone_order'        => '该账户存在未完成订单，无法继续抢单！',
     'miniapp.invite_code_invalid'     => '邀请码无效',
+    'miniapp.chat_room_not_found'     => '聊天室不存在',
 ];
