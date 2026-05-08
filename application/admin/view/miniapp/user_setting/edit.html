@@ -1,11 +1,4 @@
-<form
-  id="edit-form"
-  class="form-horizontal"
-  role="form"
-  data-toggle="validator"
-  method="POST"
-  action=""
->
+<form id="edit-form" class="form-horizontal" role="form" data-toggle="validator" method="POST" action="">
   {:token()}
   <div class="form-group">
     <label class="control-label col-xs-12 col-sm-2">{:__('Id')}:</label>
@@ -38,19 +31,6 @@
     </div>
   </div>
   <div class="form-group">
-    <label for="c-recharge_address" class="control-label col-xs-12 col-sm-2"
-      >{:__('Recharge_address')}:</label
-    >
-    <div class="col-xs-12 col-sm-8">
-      <textarea
-        id="c-recharge_address"
-        class="form-control"
-        rows="3"
-        name="row[recharge_address]"
-      >{$row.recharge_address|htmlentities}</textarea>
-    </div>
-  </div>
-  <div class="form-group">
     <label class="control-label col-xs-12 col-sm-2">{:__('Agent_enabled')}:</label>
     <div class="col-xs-12 col-sm-8">
       <label for="c-show_td">
@@ -60,95 +40,40 @@
     </div>
   </div>
   <div class="form-group">
-    <label for="c-template_name" class="control-label col-xs-12 col-sm-2"
-      >{:__('Template_name')}:</label
-    >
+    <label for="c-dispatch_mode_id" class="control-label col-xs-12 col-sm-2">{:__('Dispatch_mode')}:</label>
     <div class="col-xs-12 col-sm-8">
-      <input
-        id="c-template_name"
-        class="form-control"
-        name="row[template_name]"
-        type="text"
-        value="{$row.template_name|htmlentities}"
-      />
+      <select id="c-dispatch_mode_id" name="row[dispatch_mode_id]" class="form-control selectpicker">
+        {foreach name="dispatchModeList" item="vo"}
+        <option value="{$key|htmlentities}" {if condition="(string)$row.dispatch_mode_id === (string)$key"}selected{/if}>{$vo|htmlentities}</option>
+        {/foreach}
+      </select>
     </div>
   </div>
   <div class="form-group">
-    <label for="c-dispatch_order" class="control-label col-xs-12 col-sm-2"
-      >{:__('Dispatch_order')}:</label
-    >
+    <label for="c-password" class="control-label col-xs-12 col-sm-2">{:__('Password')}:</label>
     <div class="col-xs-12 col-sm-8">
-      <input
-        id="c-dispatch_order"
-        class="form-control"
-        name="row[dispatch_order]"
-        type="text"
-        value="{$row.dispatch_order|htmlentities}"
-      />
-      <span class="help-block"
-        >0=下一个订单，多个订单用 / 隔开，例如：1/2/3/4/5</span
-      >
+      <input id="c-password" class="form-control" name="row[password]" type="password" value="" autocomplete="new-password" />
+      <span class="help-block">{:__('Leave blank to keep unchanged')}</span>
     </div>
   </div>
   <div class="form-group">
-    <label for="c-commission_rate" class="control-label col-xs-12 col-sm-2"
-      >{:__('Commission_rate')}:</label
-    >
+    <label for="c-cash_password" class="control-label col-xs-12 col-sm-2">{:__('Cash_password')}:</label>
     <div class="col-xs-12 col-sm-8">
-      <input
-        id="c-commission_rate"
-        class="form-control"
-        name="row[commission_rate]"
-        type="text"
-        value="{$row.commission_rate|htmlentities}"
-      />
-      <span class="help-block"
-        >0=不设置佣金比例，50 表示 50%，多个用 / 隔开，例如：1/2/3/4/5</span
-      >
+      <input id="c-cash_password" class="form-control" name="row[cash_password]" type="password" value="" autocomplete="new-password" />
+      <span class="help-block">{:__('Leave blank to keep unchanged')}</span>
     </div>
   </div>
   <div class="form-group">
-    <label for="c-fixed_commission" class="control-label col-xs-12 col-sm-2"
-      >{:__('Fixed_commission')}:</label
-    >
+    <label for="c-withdraw_address" class="control-label col-xs-12 col-sm-2">{:__('Withdraw_address')}:</label>
     <div class="col-xs-12 col-sm-8">
-      <input
-        id="c-fixed_commission"
-        class="form-control"
-        name="row[fixed_commission]"
-        type="text"
-        value="{$row.fixed_commission|htmlentities}"
-      />
-      <span class="help-block"
-        >0=不设置固定佣金。设置固定佣金后佣金比例不生效，多个用 /
-        隔开，例如：1/2/3/4/5</span
-      >
-    </div>
-  </div>
-  <div class="form-group">
-    <label for="c-dispatch_amount" class="control-label col-xs-12 col-sm-2"
-      >{:__('Dispatch_amount')}:</label
-    >
-    <div class="col-xs-12 col-sm-8">
-      <input
-        id="c-dispatch_amount"
-        class="form-control"
-        name="row[dispatch_amount]"
-        type="text"
-        value="{$row.dispatch_amount|htmlentities}"
-      />
-      <span class="help-block">多个用 / 隔开，例如：1/2/3/4/5</span>
+      <textarea id="c-withdraw_address" class="form-control" rows="3" name="row[withdraw_address]">{$row.withdraw_address|htmlentities}</textarea>
     </div>
   </div>
   <div class="form-group layer-footer">
     <label class="control-label col-xs-12 col-sm-2"></label>
     <div class="col-xs-12 col-sm-8">
-      <button type="submit" class="btn btn-success btn-embossed disabled">
-        {:__('OK')}
-      </button>
-      <button type="reset" class="btn btn-warning btn-embossed">
-        {:__('Reset')}
-      </button>
+      <button type="submit" class="btn btn-success btn-embossed disabled">{:__('OK')}</button>
+      <button type="reset" class="btn btn-warning btn-embossed">{:__('Reset')}</button>
     </div>
   </div>
 </form>

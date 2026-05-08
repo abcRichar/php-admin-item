@@ -129,21 +129,39 @@ class Ctrl extends MiniappBase
   {
     $this->execute(function () {
       $user = $this->getMiniappUser();
-      $payConfigs = Db::name('miniapp_pay_config')
+      $types = ['USDT-TRC20', 'USDT-ERC20'];
+      $rows = Db::name('miniapp_pay_config')
         ->where('status', 1)
-        ->where(function ($q) use ($user) {
-          $q->where('user_id', 0)->whereOr('user_id', (int)$user['id']);
-        })
+        ->where('user_id', 0)
+        ->where('type', 'in', $types)
         ->order('sort desc, id desc')
-        ->field('usercode, type')
+        ->field('usercode, type, qrcode')
         ->select();
 
-      $usercode = $payConfigs ? (string)$payConfigs[0]['usercode'] : '';
+      $configMap = [];
+      foreach (($rows ?: []) as $row) {
+        $type = (string)($row['type'] ?? '');
+        if ($type !== '' && !isset($configMap[$type])) {
+          $configMap[$type] = $row;
+        }
+      }
+
+      $payConfigs = [];
+      foreach ($types as $type) {
+        $row = $configMap[$type] ?? [];
+        $payConfigs[] = [
+          'usercode' => (string)($row['usercode'] ?? ''),
+          'type'     => $type,
+          'qrcode'   => (string)($row['qrcode'] ?? ''),
+        ];
+      }
+
+      $usercode = (string)$payConfigs[0]['usercode'];
 
       $this->logRequest((int)$user['id']);
       $this->apiSuccess(__('miniapp.success'), [
         'usercode' => $usercode,
-        'pay'      => $payConfigs ?: [],
+        'pay'      => $payConfigs,
       ]);
     });
   }

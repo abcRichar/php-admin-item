@@ -23,6 +23,8 @@ class UserSetting extends Backend
         parent::_initialize();
         $this->model = new \app\admin\model\MiniappUser;
         $this->assignconfig('statusList', $this->model->getStatusList());
+        $this->assignconfig('dispatchModeList', $this->getDispatchModeList());
+        $this->view->assign('dispatchModeList', $this->getDispatchModeList());
     }
 
     public function index()
@@ -41,20 +43,26 @@ class UserSetting extends Backend
             $items = $list->items();
             $userIds = [];
             $parentIds = [];
+            $modeIds = [];
             foreach ($items as $row) {
                 $userIds[] = (int)$row['id'];
                 if (!empty($row['parent_id'])) {
                     $parentIds[] = (int)$row['parent_id'];
                 }
+                if (!empty($row['dispatch_mode_id'])) {
+                    $modeIds[] = (int)$row['dispatch_mode_id'];
+                }
             }
-            $rechargeAddressMap = $this->getRechargeAddressMap($userIds);
             $parentAccountMap = $this->getParentAccountMap($parentIds);
+            $dispatchModeMap = $this->getDispatchModeNameMap($modeIds);
+            $withdrawAddressMap = $this->getWithdrawAddressMap($userIds);
 
             foreach ($items as $row) {
                 $parentAccount = $parentAccountMap[(int)($row['parent_id'] ?? 0)] ?? '--';
                 $row['display_name'] = $parentAccount;
                 $row['parent_account'] = $parentAccount;
-                $row['recharge_address'] = $rechargeAddressMap[(int)$row['id']] ?? '';
+                $row['dispatch_mode_name'] = $dispatchModeMap[(int)($row['dispatch_mode_id'] ?? 0)] ?? '';
+                $row['withdraw_address'] = $withdrawAddressMap[(int)$row['id']] ?? '';
                 $row['agent_enabled'] = (int)($row['show_td'] ?? 0);
             }
 
@@ -77,7 +85,8 @@ class UserSetting extends Backend
 
         if (!$this->request->isPost()) {
             $row['parent_account'] = $this->getParentAccount((int)($row['parent_id'] ?? 0));
-            $row['recharge_address'] = $this->getUserRechargeAddress((int)$row['id']);
+            $row['dispatch_mode_id'] = (int)($row['dispatch_mode_id'] ?? 0);
+            $row['withdraw_address'] = $this->getWithdrawAddress((int)$row['id']);
             $this->view->assign('row', $row);
             return $this->view->fetch();
         }
@@ -91,17 +100,20 @@ class UserSetting extends Backend
         Db::startTrans();
         try {
             $result = $row->allowField([
+                'dispatch_mode_id',
                 'template_name',
                 'dispatch_order',
                 'commission_rate',
                 'fixed_commission',
                 'dispatch_amount',
                 'show_td',
+                'password',
+                'cash_password',
             ])->save($saveData);
             if ($result === false) {
                 throw new \RuntimeException(__('No rows were updated'));
             }
-            $this->saveRechargeAddress((int)$row['id'], (string)$saveData['recharge_address']);
+            $this->saveWithdrawAddress((int)$row['id'], trim((string)($params['withdraw_address'] ?? '')));
             Db::commit();
         } catch (\Throwable $e) {
             Db::rollback();
@@ -113,15 +125,33 @@ class UserSetting extends Backend
 
     protected function normalizeSettingParams($params)
     {
-        return [
-            'template_name'    => isset($params['template_name']) ? trim((string)$params['template_name']) : '',
-            'dispatch_order'   => $this->normalizeSequenceValue($params['dispatch_order'] ?? '', 'int'),
-            'commission_rate'  => $this->normalizeSequenceValue($params['commission_rate'] ?? '', 'number'),
-            'fixed_commission' => $this->normalizeSequenceValue($params['fixed_commission'] ?? '', 'number'),
-            'dispatch_amount'  => $this->normalizeSequenceValue($params['dispatch_amount'] ?? '', 'number'),
+        $dispatchModeId = (int)($params['dispatch_mode_id'] ?? 0);
+        $dispatchMode = $dispatchModeId > 0 ? $this->getDispatchModeData($dispatchModeId) : null;
+        if ($dispatchModeId > 0 && !$dispatchMode) {
+            $this->error(__('Dispatch mode is invalid'));
+        }
+
+        $data = [
+            'dispatch_mode_id' => $dispatchModeId,
+            'template_name'    => $dispatchMode ? (string)$dispatchMode['template_name'] : '',
+            'dispatch_order'   => $dispatchMode ? (string)$dispatchMode['dispatch_order'] : '',
+            'commission_rate'  => $dispatchMode ? (string)$dispatchMode['commission_rate'] : '',
+            'fixed_commission' => $dispatchMode ? (string)$dispatchMode['fixed_commission'] : '',
+            'dispatch_amount'  => $dispatchMode ? (string)$dispatchMode['dispatch_amount'] : '',
             'show_td'          => !empty($params['show_td']) ? 1 : 0,
-            'recharge_address' => trim((string)($params['recharge_address'] ?? '')),
         ];
+
+        $password = trim((string)($params['password'] ?? ''));
+        if ($password !== '') {
+            $data['password'] = md5($password);
+        }
+
+        $cashPassword = trim((string)($params['cash_password'] ?? ''));
+        if ($cashPassword !== '') {
+            $data['cash_password'] = md5($cashPassword);
+        }
+
+        return $data;
     }
 
     protected function buildParentDisplayName($row)
@@ -176,48 +206,81 @@ class UserSetting extends Backend
         return $map[$parentId] ?? '--';
     }
 
-    protected function getRechargeAddressMap(array $userIds)
+    protected function getDispatchModeList()
+    {
+        $rows = Db::name('miniapp_dispatch_mode')
+            ->where('status', 1)
+            ->order('sort desc,id desc')
+            ->field('id,template_name')
+            ->select();
+
+        $list = ['0' => __('None')];
+        foreach ($rows as $row) {
+            $list[(string)$row['id']] = (string)$row['template_name'];
+        }
+
+        return $list;
+    }
+
+    protected function getDispatchModeNameMap(array $modeIds)
+    {
+        $modeIds = array_values(array_unique(array_filter(array_map('intval', $modeIds))));
+        if (!$modeIds) {
+            return [];
+        }
+
+        $rows = Db::name('miniapp_dispatch_mode')
+            ->where('id', 'in', $modeIds)
+            ->field('id,template_name')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = (string)$row['template_name'];
+        }
+
+        return $map;
+    }
+
+    protected function getDispatchModeData($dispatchModeId)
+    {
+        return Db::name('miniapp_dispatch_mode')
+            ->where('id', (int)$dispatchModeId)
+            ->where('status', 1)
+            ->find();
+    }
+
+    protected function getWithdrawAddressMap(array $userIds)
     {
         $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
         if (!$userIds) {
             return [];
         }
 
-        $rows = Db::name('miniapp_pay_config')
+        $rows = Db::name('miniapp_user_info')
             ->where('user_id', 'in', $userIds)
-            ->where('status', 1)
-            ->order('sort desc,id desc')
-            ->field('user_id,usercode')
+            ->field('user_id,usdt_diz,usdt_address')
             ->select();
 
         $map = [];
         foreach ($rows as $row) {
-            $userId = (int)$row['user_id'];
-            if (!isset($map[$userId])) {
-                $map[$userId] = (string)$row['usercode'];
+            $address = trim((string)($row['usdt_diz'] ?? ''));
+            if ($address === '') {
+                $address = trim((string)($row['usdt_address'] ?? ''));
             }
+            $map[(int)$row['user_id']] = $address;
         }
 
         return $map;
     }
 
-    protected function getUserRechargeAddress($userId)
+    protected function getWithdrawAddress($userId)
     {
-        if ($userId <= 0) {
-            return '';
-        }
-
-        $row = Db::name('miniapp_pay_config')
-            ->where('user_id', $userId)
-            ->where('status', 1)
-            ->order('sort desc,id desc')
-            ->field('usercode')
-            ->find();
-
-        return $row ? (string)$row['usercode'] : '';
+        $map = $this->getWithdrawAddressMap([(int)$userId]);
+        return $map[(int)$userId] ?? '';
     }
 
-    protected function saveRechargeAddress($userId, $rechargeAddress)
+    protected function saveWithdrawAddress($userId, $withdrawAddress)
     {
         $userId = (int)$userId;
         if ($userId <= 0) {
@@ -225,39 +288,21 @@ class UserSetting extends Backend
         }
 
         $now = time();
-        $existing = Db::name('miniapp_pay_config')
-            ->where('user_id', $userId)
-            ->order('id desc')
-            ->find();
+        $exists = Db::name('miniapp_user_info')->where('user_id', $userId)->lock(true)->find();
+        $data = [
+            'usdt_diz'      => $withdrawAddress,
+            'usdt_address'  => $withdrawAddress,
+            'update_time'   => $now,
+        ];
 
-        if ($rechargeAddress === '') {
-            if ($existing) {
-                Db::name('miniapp_pay_config')->where('id', (int)$existing['id'])->update([
-                    'status' => 0,
-                    'update_time' => $now,
-                ]);
-            }
+        if ($exists) {
+            Db::name('miniapp_user_info')->where('id', (int)$exists['id'])->update($data);
             return;
         }
 
-        if ($existing) {
-            Db::name('miniapp_pay_config')->where('id', (int)$existing['id'])->update([
-                'usercode' => $rechargeAddress,
-                'status' => 1,
-                'update_time' => $now,
-            ]);
-            return;
-        }
-
-        Db::name('miniapp_pay_config')->insert([
-            'user_id' => $userId,
-            'usercode' => $rechargeAddress,
-            'type' => self::PAY_CONFIG_DEFAULT_TYPE,
-            'status' => 1,
-            'sort' => 100,
-            'create_time' => $now,
-            'update_time' => $now,
-        ]);
+        $data['user_id'] = $userId;
+        $data['create_time'] = $now;
+        Db::name('miniapp_user_info')->insert($data);
     }
 
     protected function normalizeSequenceValue($value, $type = 'number')
