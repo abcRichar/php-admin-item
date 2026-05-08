@@ -133,11 +133,13 @@ class SystemConfig extends Backend
             ->field('usercode,qrcode,type')
             ->select();
 
+        $seenTypes = [];
         foreach ($rows as $row) {
             $type = (string)$row['type'];
-            if (!isset($defaults[$type])) {
+            if (!isset($defaults[$type]) || isset($seenTypes[$type])) {
                 continue;
             }
+            $seenTypes[$type] = true;
             $defaults[$type] = [
                 'address' => (string)$row['usercode'],
                 'qrcode'  => (string)($row['qrcode'] ?? ''),
