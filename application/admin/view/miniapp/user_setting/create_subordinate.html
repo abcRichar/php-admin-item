@@ -1,0 +1,71 @@
+<form id="add-form" class="form-horizontal" role="form" data-toggle="validator" method="POST" action="">
+  {:token()}
+  <div class="form-group">
+    <label class="control-label col-xs-12 col-sm-2">{:__('Parent_account')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <p class="form-control-static">
+        {:$parent.username ?: ($parent.nickname ?: $parent.tel)}
+        <span class="text-muted">ID: {$parent.id|htmlentities}</span>
+      </p>
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-tel" class="control-label col-xs-12 col-sm-2">{:__('Tel')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <input id="c-tel" class="form-control" name="row[tel]" type="text" value="" data-rule="required" />
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-area_code" class="control-label col-xs-12 col-sm-2">{:__('Area_code')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <input id="c-area_code" class="form-control" name="row[area_code]" type="text" value="+86" />
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-password" class="control-label col-xs-12 col-sm-2">{:__('Password')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <input id="c-password" class="form-control" name="row[password]" type="password" value="" autocomplete="new-password" data-rule="required;length(6~64)" />
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-cash_password" class="control-label col-xs-12 col-sm-2">{:__('Cash_password')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <input id="c-cash_password" class="form-control" name="row[cash_password]" type="password" value="" autocomplete="new-password" />
+      <span class="help-block">{:__('Leave blank to use login password')}</span>
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-username" class="control-label col-xs-12 col-sm-2">{:__('Username')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <input id="c-username" class="form-control" name="row[username]" type="text" value="" />
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-nickname" class="control-label col-xs-12 col-sm-2">{:__('Nickname')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <input id="c-nickname" class="form-control" name="row[nickname]" type="text" value="" />
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="control-label col-xs-12 col-sm-2">{:__('Agent_enabled')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <label for="c-show_td">
+        <input id="c-show_td" name="row[show_td]" type="checkbox" value="1" checked />
+        {:__('Invite code valid when enabled')}
+      </label>
+    </div>
+  </div>
+  <div class="form-group">
+    <label for="c-status" class="control-label col-xs-12 col-sm-2">{:__('Status')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      {:build_radios('row[status]', ['1'=>__('Normal'), '0'=>__('Disabled')], 1)}
+    </div>
+  </div>
+  <div class="form-group layer-footer">
+    <label class="control-label col-xs-12 col-sm-2"></label>
+    <div class="col-xs-12 col-sm-8">
+      <button type="submit" class="btn btn-success btn-embossed disabled">{:__('OK')}</button>
+      <button type="reset" class="btn btn-warning btn-embossed">{:__('Reset')}</button>
+    </div>
+  </div>
+</form>

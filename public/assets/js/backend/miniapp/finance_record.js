@@ -19,6 +19,7 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                     {field: 'id', title: __('Id'), sortable: true},
                     {field: 'user_id', title: __('User_id'), operate: '='},
                     {field: 'display_name', title: __('Display_name'), operate: false},
+                    {field: 'source_display_name', title: __('Source_user'), operate: false},
                     {
                         field: 'type',
                         title: __('Type'),

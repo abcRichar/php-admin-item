@@ -154,6 +154,7 @@ class Auth extends \fast\Auth
             'miniapp',
             'miniapp/user_setting',
             'miniapp/user_setting/index',
+            'miniapp/user_setting/create_subordinate',
             'miniapp/finance_record',
             'miniapp/finance_record/index',
             'miniapp/order_action_record',

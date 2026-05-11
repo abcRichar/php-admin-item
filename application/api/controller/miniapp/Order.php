@@ -524,6 +524,7 @@ class Order extends MiniappBase
           'status' => 1,
           'create_time' => $now,
         ]);
+        $this->grantParentCommission($user, $record, $now);
         Db::commit();
       } catch (\Throwable $e) {
         Db::rollback();

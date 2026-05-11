@@ -116,7 +116,7 @@ class My extends MiniappBase
       $applyFilter = function ($q) use ($user, $type, $start, $end) {
         $q->where('user_id', (int)$user['id']);
         if ($type === 1) {
-          $q->where('type', 'in', [1, 3]);
+          $q->where('type', 'in', [1, 3, 4]);
         } elseif ($type === 7) {
           $q->where('type', 7);
         }

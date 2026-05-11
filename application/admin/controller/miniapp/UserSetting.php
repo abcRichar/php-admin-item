@@ -24,6 +24,7 @@ class UserSetting extends Backend
         $this->model = new \app\admin\model\MiniappUser;
         $this->assignconfig('statusList', $this->model->getStatusList());
         $this->assignconfig('dispatchModeList', $this->getDispatchModeList());
+        $this->assignconfig('isMiniappAgent', $this->isMiniappAgentAdmin() ? 1 : 0);
         $this->view->assign('dispatchModeList', $this->getDispatchModeList());
     }
 
@@ -123,6 +124,40 @@ class UserSetting extends Backend
         $this->success();
     }
 
+    public function create_subordinate($ids = null)
+    {
+        $parent = $this->resolveSubordinateParent($ids);
+
+        if (!$this->request->isPost()) {
+            $this->view->assign('parent', $parent);
+            return $this->view->fetch();
+        }
+
+        $params = $this->request->post('row/a');
+        if (!$params) {
+            $this->error(__('Parameter %s can not be empty', ''));
+        }
+
+        $data = $this->normalizeSubordinateParams($params, (int)$parent['id']);
+        $now = time();
+
+        Db::startTrans();
+        try {
+            $userId = Db::name('miniapp_user')->insertGetId($data);
+            Db::name('miniapp_user_info')->insert([
+                'user_id'     => (int)$userId,
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+            Db::commit();
+        } catch (\Throwable $e) {
+            Db::rollback();
+            $this->error($e->getMessage());
+        }
+
+        $this->success();
+    }
+
     protected function normalizeSettingParams($params)
     {
         $dispatchModeId = (int)($params['dispatch_mode_id'] ?? 0);
@@ -152,6 +187,97 @@ class UserSetting extends Backend
         }
 
         return $data;
+    }
+
+    protected function resolveSubordinateParent($ids = null)
+    {
+        $parentId = $this->isMiniappAgentAdmin()
+            ? $this->getMiniappAgentUserId()
+            : (int)($ids ?: $this->request->param('parent_id', 0));
+
+        if ($parentId <= 0) {
+            $this->error(__('Please select parent account'));
+        }
+
+        $parent = Db::name('miniapp_user')
+            ->where('id', $parentId)
+            ->where('status', 1)
+            ->find();
+        if (!$parent) {
+            $this->error(__('Parent account is invalid'));
+        }
+
+        return $parent;
+    }
+
+    protected function normalizeSubordinateParams($params, $parentId)
+    {
+        $tel = trim((string)($params['tel'] ?? ''));
+        $areaCode = trim((string)($params['area_code'] ?? '+86'));
+        $password = trim((string)($params['password'] ?? ''));
+        $cashPassword = trim((string)($params['cash_password'] ?? ''));
+        $username = trim((string)($params['username'] ?? ''));
+        $nickname = trim((string)($params['nickname'] ?? ''));
+        $showTd = !empty($params['show_td']) ? 1 : 0;
+        $status = isset($params['status']) ? (int)$params['status'] : 1;
+
+        if ($tel === '' || $password === '') {
+            $this->error(__('Tel and password are required'));
+        }
+        if (strlen($tel) > 32) {
+            $this->error(__('Tel is too long'));
+        }
+        if (strlen($password) < 6) {
+            $this->error(__('Password must be at least 6 characters'));
+        }
+        if ($cashPassword !== '' && strlen($cashPassword) < 6) {
+            $this->error(__('Cash password must be at least 6 characters'));
+        }
+        if (!in_array($status, [0, 1], true)) {
+            $this->error(__('Status is invalid'));
+        }
+        if (Db::name('miniapp_user')->where('tel', $tel)->find()) {
+            $this->error(__('Tel already exists'));
+        }
+
+        $now = time();
+        return [
+            'tel'             => $tel,
+            'area_code'       => $areaCode !== '' ? $areaCode : '+86',
+            'password'        => md5($password),
+            'cash_password'   => md5($cashPassword !== '' ? $cashPassword : $password),
+            'token'           => '',
+            'nickname'        => $nickname !== '' ? $nickname : ('U' . substr($tel, -4)),
+            'username'        => $username,
+            'avatar'          => '',
+            'headpic'         => '',
+            'balance'         => 0,
+            'freeze_balance'  => 0,
+            'team_income'     => 0,
+            'invite_code'     => $this->generateInviteCode($tel, $now),
+            'parent_id'       => (int)$parentId,
+            'level'           => 0,
+            'deal_num'        => 0,
+            'group_id'        => 0,
+            'show_td'         => $showTd,
+            'status'          => $status,
+            'last_login_time' => 0,
+            'last_login_ip'   => '',
+            'create_time'     => $now,
+            'update_time'     => $now,
+        ];
+    }
+
+    protected function generateInviteCode($tel, $now)
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $code = strtoupper(substr(md5($tel . '_' . $now . '_' . mt_rand(1000, 999999)), 0, 8));
+            if (!Db::name('miniapp_user')->where('invite_code', $code)->find()) {
+                return $code;
+            }
+        }
+
+        return strtoupper(substr(md5($tel . '_' . microtime(true)), 0, 12));
     }
 
     protected function buildParentDisplayName($row)

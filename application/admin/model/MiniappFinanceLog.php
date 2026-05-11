@@ -20,7 +20,7 @@ class MiniappFinanceLog extends Model
         return [
             '1' => __('Order income'),
             '3' => __('Order commission'),
-            '4' => __('Team commission'),
+            '4' => __('Subordinate rebate income'),
             '7' => __('Withdraw apply'),
             '8' => __('Admin recharge'),
         ];

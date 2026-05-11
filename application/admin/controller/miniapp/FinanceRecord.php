@@ -3,6 +3,7 @@
 namespace app\admin\controller\miniapp;
 
 use app\common\controller\Backend;
+use think\Db;
 
 /**
  * 账变记录
@@ -36,11 +37,33 @@ class FinanceRecord extends Backend
                 ->join('fa_miniapp_user user', 'user.id = record.user_id', 'LEFT')
                 ->field('record.*,user.tel,user.username,user.nickname')
                 ->where($where);
-            $this->applyMiniappAgentUserScope($query, 'user');
+            if ($this->isMiniappAgentAdmin()) {
+                $agentUserId = $this->getMiniappAgentUserId();
+                if ($agentUserId <= 0) {
+                    $query->where('1=0');
+                } else {
+                    $query->where(function ($query) use ($agentUserId) {
+                        $query->where('user.parent_id', $agentUserId)
+                            ->whereOr(function ($query) use ($agentUserId) {
+                                $query->where('record.user_id', $agentUserId)
+                                    ->where('record.type', 4);
+                            });
+                    });
+                }
+            }
             $list = $query->order($sort, $order)->paginate($limit);
+
+            $sourceUserIds = [];
+            foreach ($list as $row) {
+                if (!empty($row['sid'])) {
+                    $sourceUserIds[] = (int)$row['sid'];
+                }
+            }
+            $sourceUserMap = $this->getMiniappUserDisplayNameMap($sourceUserIds);
 
             foreach ($list as $row) {
                 $row['display_name'] = (string)($row['username'] ?: $row['nickname'] ?: $row['tel'] ?: ('UID:' . $row['user_id']));
+                $row['source_display_name'] = $sourceUserMap[(int)($row['sid'] ?? 0)] ?? ((int)($row['sid'] ?? 0) > 0 ? ('UID:' . (int)$row['sid']) : '--');
             }
 
             return json([
@@ -50,5 +73,25 @@ class FinanceRecord extends Backend
         }
 
         return $this->view->fetch();
+    }
+
+    protected function getMiniappUserDisplayNameMap(array $userIds)
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if (!$userIds) {
+            return [];
+        }
+
+        $rows = Db::name('miniapp_user')
+            ->where('id', 'in', $userIds)
+            ->field('id,tel,username,nickname')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = (string)($row['username'] ?: $row['nickname'] ?: $row['tel'] ?: ('UID:' . $row['id']));
+        }
+
+        return $map;
     }
 }

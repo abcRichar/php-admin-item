@@ -39,6 +39,7 @@ class SystemConfig extends Backend
         $saveData = [
             'recharge_address'      => trim((string)($params['trc20_address'] ?? '')),
             'fixed_commission_rate' => $this->normalizeRate($params['fixed_commission_rate'] ?? 0),
+            'parent_rebate_rate'    => $this->normalizeRate($params['parent_rebate_rate'] ?? 0, 'Parent rebate rate'),
             'status'                => 1,
         ];
         $payConfigs = [
@@ -83,6 +84,9 @@ class SystemConfig extends Backend
             $row['trc20_qrcode'] = $payConfigs[self::PAY_TYPE_TRC20]['qrcode'];
             $row['erc20_address'] = $payConfigs[self::PAY_TYPE_ERC20]['address'];
             $row['erc20_qrcode'] = $payConfigs[self::PAY_TYPE_ERC20]['qrcode'];
+            $row['parent_rebate_rate'] = isset($row['parent_rebate_rate']) && $row['parent_rebate_rate'] !== ''
+                ? sprintf('%.2f', (float)$row['parent_rebate_rate'])
+                : '15.00';
             return $row;
         }
 
@@ -94,21 +98,22 @@ class SystemConfig extends Backend
             'erc20_address'         => $payConfigs[self::PAY_TYPE_ERC20]['address'],
             'erc20_qrcode'          => $payConfigs[self::PAY_TYPE_ERC20]['qrcode'],
             'fixed_commission_rate' => $this->getDefaultCommissionRate(),
+            'parent_rebate_rate'    => '15.00',
         ];
     }
 
-    protected function normalizeRate($value)
+    protected function normalizeRate($value, $fieldName = 'Fixed commission rate')
     {
         $value = trim((string)$value);
         if ($value === '') {
             return '0.00';
         }
         if (!is_numeric($value)) {
-            $this->error(__('Fixed commission rate must be numeric'));
+            $this->error(__($fieldName . ' must be numeric'));
         }
         $rate = round((float)$value, 2);
         if ($rate < 0 || $rate > 100) {
-            $this->error(__('Fixed commission rate must be between 0 and 100'));
+            $this->error(__($fieldName . ' must be between 0 and 100'));
         }
         return sprintf('%.2f', $rate);
     }

@@ -67,6 +67,105 @@ class MiniappBase extends Api
     }
   }
 
+  protected function getParentRebateRate()
+  {
+    try {
+      $value = Db::name('miniapp_system_config')->where('id', 1)->value('parent_rebate_rate');
+    } catch (\Throwable $e) {
+      return 15.00;
+    }
+    if ($value === null || $value === '' || !is_numeric($value)) {
+      return 15.00;
+    }
+
+    $rate = round((float)$value, 2);
+    if ($rate < 0) {
+      return 0.00;
+    }
+    if ($rate > 100) {
+      return 100.00;
+    }
+
+    return $rate;
+  }
+
+  protected function calculateParentCommission($commission)
+  {
+    $commission = round((float)$commission, 2);
+    if ($commission <= 0) {
+      return 0.00;
+    }
+
+    return round($commission * $this->getParentRebateRate() / 100, 2);
+  }
+
+  protected function grantParentCommission($orderUser, $order, $now)
+  {
+    $parentId = (int)($order['parent_uid'] ?? 0);
+    if ($parentId <= 0) {
+      $parentId = (int)($orderUser['parent_id'] ?? 0);
+    }
+    if ($parentId <= 0 || $parentId === (int)$orderUser['id']) {
+      return;
+    }
+
+    $parentCommission = round((float)($order['parent_commission'] ?? 0), 2);
+    if ($parentCommission <= 0) {
+      return;
+    }
+
+    $parent = Db::name('miniapp_user')
+      ->where('id', $parentId)
+      ->where('status', 1)
+      ->lock(true)
+      ->find();
+    if (!$parent) {
+      return;
+    }
+
+    $orderNo = (string)($order['order_no'] ?? $order['oid'] ?? '');
+    if ($orderNo === '') {
+      return;
+    }
+
+    $exists = Db::name('miniapp_finance_log')
+      ->where('user_id', $parentId)
+      ->where('sid', (int)$orderUser['id'])
+      ->where('type', 4)
+      ->where('related_order_no', $orderNo)
+      ->find();
+    if ($exists) {
+      return;
+    }
+
+    $newBalance = round((float)$parent['balance'] + $parentCommission, 2);
+    $newTeamIncome = round((float)($parent['team_income'] ?? 0) + $parentCommission, 2);
+
+    Db::name('miniapp_user')->where('id', $parentId)->update([
+      'balance'     => $newBalance,
+      'team_income' => $newTeamIncome,
+      'update_time' => $now,
+    ]);
+
+    Db::name('miniapp_finance_log')->insert([
+      'user_id'          => $parentId,
+      'uid'              => $parentId,
+      'sid'              => (int)$orderUser['id'],
+      'oid'              => $orderNo,
+      'num'              => $parentCommission,
+      'balance'          => $newBalance,
+      'addtime'          => $now,
+      'f_lv'             => '1',
+      'status'           => 1,
+      'type'             => 4,
+      'amount'           => $parentCommission,
+      'balance_after'    => $newBalance,
+      'related_order_no' => $orderNo,
+      'remark'           => 'subordinate rebate income',
+      'create_time'      => $now,
+    ]);
+  }
+
   protected function getToken()
   {
     return (string)$this->request->header('token', $this->request->param('token', ''));
