@@ -13,6 +13,7 @@ class Goods extends Backend
 {
     protected $model = null;
     protected $modelValidate = true;
+    protected $excludeFields = ['goods_count', 'default_commission_rate', 'profit'];
     protected $searchFields = 'id,title,sub_title,language';
 
     public function _initialize()

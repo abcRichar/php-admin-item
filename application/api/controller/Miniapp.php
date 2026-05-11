@@ -324,7 +324,7 @@ class Miniapp extends Api
                 $rows = Db::name('miniapp_goods')->where('status', 1)->where('language', self::LANGUAGE_CN)->order('sort desc,id desc')->select();
             }
             foreach (($rows ?: []) as &$row) {
-                $row['goods_count'] = max(1, (int)($row['goods_count'] ?? 1));
+                $row['goods_count'] = 1;
             }
             unset($row);
             $this->logRequest((int)$user['id']);
@@ -412,7 +412,7 @@ class Miniapp extends Api
 
             $now = time();
             $orderNo = 'UB' . date('ymdHis') . mt_rand(1000, 9999);
-            $goodsCount = max(1, (int)($goods['goods_count'] ?? 1));
+            $goodsCount = 1;
             $goodsPrice = (float)$goods['price'];
             $amount = round($goodsPrice * $goodsCount, 2);
             Db::startTrans();

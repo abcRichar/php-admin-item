@@ -57,7 +57,7 @@ class RotOrder extends MiniappBase
     return implode('/', array_values($items));
   }
 
-  protected function resolveCommission($amount, $defaultRate, $profile, $goodsDefaultCommissionRate = 0)
+  protected function resolveCommission($amount, $defaultRate, $profile)
   {
     $isUserSpecialRule = isset($profile['from_rule']) && $profile['from_rule'] === 'user';
     $fixedCommission = isset($profile['fixed_commission']) ? (float)$profile['fixed_commission'] : 0;
@@ -68,11 +68,6 @@ class RotOrder extends MiniappBase
     $commissionRate = isset($profile['commission_rate']) ? (float)$profile['commission_rate'] : 0;
     if ($isUserSpecialRule && $commissionRate > 0) {
       return round($amount * $commissionRate / 100, 2);
-    }
-
-    $goodsDefaultCommissionRate = (float)$goodsDefaultCommissionRate;
-    if ($goodsDefaultCommissionRate > 0) {
-      return round($amount * $goodsDefaultCommissionRate / 100, 2);
     }
 
     return round($amount * (float)$defaultRate, 2);
@@ -219,7 +214,7 @@ class RotOrder extends MiniappBase
       'goods_count' => $goodsCount,
       'goods_price' => $goodsPrice,
       'amount' => $amount,
-      'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile, (float)($goods['default_commission_rate'] ?? 0)),
+      'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile),
       'lack_amount' => $lackAmount,
       'can_submit' => $lackAmount <= 0,
       'max_order_count' => $maxOrderCount,
