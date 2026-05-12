@@ -16,7 +16,7 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
       });
 
       var table = $("#table");
-      if (parseInt(Config.isMiniappAgent || 0, 10) === 1) {
+      if (parseInt(Config.canCreateSubordinate || 0, 10) === 1) {
         $(".btn-create-subordinate").removeClass("hidden");
       }
 

@@ -204,7 +204,7 @@ class Miniapp extends Api
             $tel = (string)$this->request->post('tel', $this->request->param('tel', ''));
             $pwd = (string)$this->request->post('pwd', $this->request->param('pwd', ''));
             $confirmPassword = (string)$this->request->post('confirmPassword', $this->request->param('confirmPassword', ''));
-            $inviteCode = (string)$this->request->post('invite_code', $this->request->param('invite_code', ''));
+            $inviteCode = strtoupper(trim((string)$this->request->post('invite_code', $this->request->param('invite_code', ''))));
             $areaCode = (string)$this->request->post('area_code', $this->request->param('area_code', ''));
             if ($tel === '' || $pwd === '' || $confirmPassword === '' || $inviteCode === '' || $areaCode === '') {
                 $this->apiError(__('miniapp.param_error'), null, 400);
@@ -217,7 +217,11 @@ class Miniapp extends Api
             }
 
             $parentUser = Db::name('miniapp_user')->where('invite_code', $inviteCode)->where('show_td', 1)->find();
+            $inviteAdmin = null;
             if (!$parentUser) {
+                $inviteAdmin = Db::name('admin')->where('invite_code', $inviteCode)->where('status', 'normal')->find();
+            }
+            if (!$parentUser && !$inviteAdmin) {
                 $this->apiError(__('miniapp.invite_code_invalid'), null, 400);
             }
             $now = time();
@@ -256,6 +260,14 @@ class Miniapp extends Api
                 'create_time' => $now,
                 'update_time' => $now,
             ]);
+            if ($inviteAdmin) {
+                Db::name('admin_miniapp_user')->insert([
+                    'admin_id'    => (int)$inviteAdmin['id'],
+                    'user_id'     => (int)$userId,
+                    'invite_code' => $inviteCode,
+                    'create_time' => $now,
+                ]);
+            }
 
             $this->logRequest((int)$userId);
             $this->apiSuccess(__('miniapp.success'), [

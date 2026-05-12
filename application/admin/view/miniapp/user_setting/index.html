@@ -5,7 +5,7 @@
         <div class="widget-body no-padding">
             <div id="toolbar" class="toolbar">
                 {:build_toolbar('refresh')}
-                <a href="miniapp/user_setting/create_subordinate" class="btn btn-success btn-dialog btn-create-subordinate hidden" title="{:__('Create_subordinate')}"><i class="fa fa-user-plus"></i> {:__('Create_subordinate')}</a>
+                <a href="miniapp/user_setting/create_subordinate" class="btn btn-success btn-dialog btn-create-subordinate {if condition="empty($canCreateSubordinate)"}hidden{/if}" title="{:__('Create_subordinate')}"><i class="fa fa-user-plus"></i> {:__('Create_subordinate')}</a>
             </div>
             <table id="table" class="table table-striped table-bordered table-hover table-nowrap"
                    data-operate-edit="{:$auth->check('miniapp/user_setting/edit')}"

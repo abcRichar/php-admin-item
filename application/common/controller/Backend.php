@@ -44,6 +44,10 @@ class Backend extends Controller
      */
     protected $auth = null;
 
+    protected $adminChildIdsCache = [];
+    protected $miniappUserChildIdsCache = [];
+    protected $scopedMiniappUserIdsCache = [];
+
     /**
      * 模型对象
      * @var \think\Model
@@ -127,36 +131,170 @@ class Backend extends Controller
         return (int)($admin['miniapp_user_id'] ?? 0);
     }
 
+    protected function getCurrentAdminId()
+    {
+        $admin = Session::get('admin');
+        return (int)($admin['id'] ?? 0);
+    }
+
+    protected function getChildAdminIds($adminId = null, $withSelf = false)
+    {
+        $adminId = is_null($adminId) ? $this->getCurrentAdminId() : (int)$adminId;
+        if ($adminId <= 0) {
+            return [];
+        }
+
+        $cacheKey = $adminId . ':' . (int)$withSelf;
+        if (isset($this->adminChildIdsCache[$cacheKey])) {
+            return $this->adminChildIdsCache[$cacheKey];
+        }
+
+        $ids = $withSelf ? [$adminId] : [];
+        $visited = [$adminId => true];
+        $frontier = [$adminId];
+
+        while ($frontier) {
+            $rows = Db::name('admin')
+                ->where('parent_admin_id', 'in', $frontier)
+                ->column('id');
+            $next = [];
+            foreach ($rows as $rowId) {
+                $rowId = (int)$rowId;
+                if ($rowId <= 0 || isset($visited[$rowId])) {
+                    continue;
+                }
+                $visited[$rowId] = true;
+                $ids[] = $rowId;
+                $next[] = $rowId;
+            }
+            $frontier = $next;
+        }
+
+        $this->adminChildIdsCache[$cacheKey] = array_values(array_unique($ids));
+        return $this->adminChildIdsCache[$cacheKey];
+    }
+
+    protected function getChildMiniappUserIds(array $rootUserIds, $withSelf = false)
+    {
+        $rootUserIds = array_values(array_unique(array_filter(array_map('intval', $rootUserIds))));
+        if (!$rootUserIds) {
+            return [];
+        }
+
+        sort($rootUserIds);
+        $cacheKey = md5(implode(',', $rootUserIds) . ':' . (int)$withSelf);
+        if (isset($this->miniappUserChildIdsCache[$cacheKey])) {
+            return $this->miniappUserChildIdsCache[$cacheKey];
+        }
+
+        $ids = $withSelf ? $rootUserIds : [];
+        $visited = [];
+        foreach ($rootUserIds as $userId) {
+            $visited[$userId] = true;
+        }
+        $frontier = $rootUserIds;
+
+        while ($frontier) {
+            $rows = Db::name('miniapp_user')
+                ->where('parent_id', 'in', $frontier)
+                ->column('id');
+            $next = [];
+            foreach ($rows as $rowId) {
+                $rowId = (int)$rowId;
+                if ($rowId <= 0 || isset($visited[$rowId])) {
+                    continue;
+                }
+                $visited[$rowId] = true;
+                $ids[] = $rowId;
+                $next[] = $rowId;
+            }
+            $frontier = $next;
+        }
+
+        $this->miniappUserChildIdsCache[$cacheKey] = array_values(array_unique($ids));
+        return $this->miniappUserChildIdsCache[$cacheKey];
+    }
+
+    protected function getManagedAgentRootUserIds()
+    {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return null;
+        }
+        if ($this->isMiniappAgentAdmin()) {
+            $agentUserId = $this->getMiniappAgentUserId();
+            return $agentUserId > 0 ? [$agentUserId] : [];
+        }
+
+        $adminIds = $this->getChildAdminIds($this->getCurrentAdminId(), true);
+        if (!$adminIds) {
+            return [];
+        }
+
+        $agentUserIds = Db::name('admin')
+            ->where('id', 'in', $adminIds)
+            ->where('admin_type', \app\admin\library\Auth::ADMIN_TYPE_AGENT)
+            ->where('miniapp_user_id', '>', 0)
+            ->column('miniapp_user_id');
+
+        $invitedUserIds = Db::name('admin_miniapp_user')
+            ->where('admin_id', 'in', $adminIds)
+            ->column('user_id');
+
+        return array_values(array_unique(array_filter(array_map('intval', array_merge($agentUserIds, $invitedUserIds)))));
+    }
+
+    protected function getScopedMiniappUserIds($includeAgentSelf = false)
+    {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return null;
+        }
+
+        $cacheKey = (int)$includeAgentSelf;
+        if (isset($this->scopedMiniappUserIdsCache[$cacheKey])) {
+            return $this->scopedMiniappUserIdsCache[$cacheKey];
+        }
+
+        $rootUserIds = $this->getManagedAgentRootUserIds();
+        if ($rootUserIds === null) {
+            return null;
+        }
+        if (!$rootUserIds) {
+            $this->scopedMiniappUserIdsCache[$cacheKey] = [];
+            return [];
+        }
+
+        $withSelf = $this->isMiniappAgentAdmin() ? $includeAgentSelf : true;
+        $this->scopedMiniappUserIdsCache[$cacheKey] = $this->getChildMiniappUserIds($rootUserIds, $withSelf);
+        return $this->scopedMiniappUserIdsCache[$cacheKey];
+    }
+
     protected function applyMiniappAgentUserScope($query, $userAlias = '', $directUserField = '')
     {
-        if (!$this->isMiniappAgentAdmin()) {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
             return $query;
         }
 
-        $agentUserId = $this->getMiniappAgentUserId();
-        if ($agentUserId <= 0) {
+        $userIds = $this->getScopedMiniappUserIds(false);
+        if (!$userIds) {
             return $query->where('1=0');
         }
 
         if ($userAlias !== '') {
-            return $query->where($userAlias . '.parent_id', $agentUserId);
+            return $query->where($userAlias . '.id', 'in', $userIds);
         }
 
-        $field = $directUserField !== '' ? $directUserField : 'parent_id';
-        return $query->where($field, $agentUserId);
+        $field = $directUserField !== '' ? $directUserField : 'id';
+        return $query->where($field, 'in', $userIds);
     }
 
     protected function assertMiniappAgentCanAccessUser($userId)
     {
-        if (!$this->isMiniappAgentAdmin()) {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
             return;
         }
 
-        $allowed = Db::name('miniapp_user')
-            ->where('id', (int)$userId)
-            ->where('parent_id', $this->getMiniappAgentUserId())
-            ->find();
-        if (!$allowed) {
+        $userIds = $this->getScopedMiniappUserIds(false);
+        if (!in_array((int)$userId, $userIds, true)) {
             $this->error(__('You have no permission'), '');
         }
     }

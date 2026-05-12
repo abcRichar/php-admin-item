@@ -14,7 +14,7 @@ class UserSetting extends Backend
 {
     protected $model = null;
     protected $searchFields = 'id,tel,username,nickname,invite_code';
-    protected $noNeedRight = ['selectpage'];
+    protected $noNeedRight = ['selectpage', 'create_subordinate'];
     const FINANCE_TYPE_ADMIN_RECHARGE = 8;
     const PAY_CONFIG_DEFAULT_TYPE = 'USDT-TRC20';
 
@@ -25,7 +25,9 @@ class UserSetting extends Backend
         $this->assignconfig('statusList', $this->model->getStatusList());
         $this->assignconfig('dispatchModeList', $this->getDispatchModeList());
         $this->assignconfig('isMiniappAgent', $this->isMiniappAgentAdmin() ? 1 : 0);
+        $this->assignconfig('canCreateSubordinate', !$this->auth->isSuperAdmin() ? 1 : 0);
         $this->view->assign('dispatchModeList', $this->getDispatchModeList());
+        $this->view->assign('canCreateSubordinate', !$this->auth->isSuperAdmin() ? 1 : 0);
     }
 
     public function index()
@@ -55,11 +57,12 @@ class UserSetting extends Backend
                 }
             }
             $parentAccountMap = $this->getParentAccountMap($parentIds);
+            $inviteAdminAccountMap = $this->getInviteAdminAccountMap($userIds);
             $dispatchModeMap = $this->getDispatchModeNameMap($modeIds);
             $withdrawAddressMap = $this->getWithdrawAddressMap($userIds);
 
             foreach ($items as $row) {
-                $parentAccount = $parentAccountMap[(int)($row['parent_id'] ?? 0)] ?? '--';
+                $parentAccount = $parentAccountMap[(int)($row['parent_id'] ?? 0)] ?? ($inviteAdminAccountMap[(int)$row['id']] ?? '--');
                 $row['display_name'] = $parentAccount;
                 $row['parent_account'] = $parentAccount;
                 $row['dispatch_mode_name'] = $dispatchModeMap[(int)($row['dispatch_mode_id'] ?? 0)] ?? '';
@@ -85,7 +88,7 @@ class UserSetting extends Backend
         $this->assertMiniappAgentCanAccessUser((int)$row['id']);
 
         if (!$this->request->isPost()) {
-            $row['parent_account'] = $this->getParentAccount((int)($row['parent_id'] ?? 0));
+            $row['parent_account'] = $this->getParentAccount((int)($row['parent_id'] ?? 0), (int)$row['id']);
             $row['dispatch_mode_id'] = (int)($row['dispatch_mode_id'] ?? 0);
             $row['withdraw_address'] = $this->getWithdrawAddress((int)$row['id']);
             $this->view->assign('row', $row);
@@ -126,6 +129,10 @@ class UserSetting extends Backend
 
     public function create_subordinate($ids = null)
     {
+        if ($this->auth->isSuperAdmin()) {
+            $this->error(__('You have no permission'), '');
+        }
+
         $parent = $this->resolveSubordinateParent($ids);
 
         if (!$this->request->isPost()) {
@@ -138,7 +145,8 @@ class UserSetting extends Backend
             $this->error(__('Parameter %s can not be empty', ''));
         }
 
-        $data = $this->normalizeSubordinateParams($params, (int)$parent['id']);
+        $isAdminParent = isset($parent['parent_type']) && $parent['parent_type'] === 'admin';
+        $data = $this->normalizeSubordinateParams($params, $isAdminParent ? 0 : (int)$parent['id']);
         $now = time();
 
         Db::startTrans();
@@ -149,6 +157,14 @@ class UserSetting extends Backend
                 'create_time' => $now,
                 'update_time' => $now,
             ]);
+            if ($isAdminParent) {
+                Db::name('admin_miniapp_user')->insert([
+                    'admin_id'    => (int)$parent['id'],
+                    'user_id'     => (int)$userId,
+                    'invite_code' => (string)($parent['invite_code'] ?? ''),
+                    'create_time' => $now,
+                ]);
+            }
             Db::commit();
         } catch (\Throwable $e) {
             Db::rollback();
@@ -191,6 +207,10 @@ class UserSetting extends Backend
 
     protected function resolveSubordinateParent($ids = null)
     {
+        if (!$this->auth->isSuperAdmin() && !$this->isMiniappAgentAdmin()) {
+            return $this->getCurrentAdminAsSubordinateParent();
+        }
+
         $parentId = $this->isMiniappAgentAdmin()
             ? $this->getMiniappAgentUserId()
             : (int)($ids ?: $this->request->param('parent_id', 0));
@@ -206,8 +226,37 @@ class UserSetting extends Backend
         if (!$parent) {
             $this->error(__('Parent account is invalid'));
         }
+        if (!$this->auth->isSuperAdmin() && !$this->isMiniappAgentAdmin()) {
+            $this->assertMiniappAgentCanAccessUser((int)$parent['id']);
+        }
 
         return $parent;
+    }
+
+    protected function getCurrentAdminAsSubordinateParent()
+    {
+        $adminId = $this->getCurrentAdminId();
+        if ($adminId <= 0) {
+            $this->error(__('Parent account is invalid'));
+        }
+
+        $admin = Db::name('admin')
+            ->where('id', $adminId)
+            ->where('status', 'normal')
+            ->field('id,username,nickname,mobile,invite_code')
+            ->find();
+        if (!$admin) {
+            $this->error(__('Parent account is invalid'));
+        }
+
+        return [
+            'id'          => (int)$admin['id'],
+            'username'    => (string)$admin['username'],
+            'nickname'    => (string)$admin['nickname'],
+            'tel'         => (string)$admin['mobile'],
+            'invite_code' => (string)($admin['invite_code'] ?? ''),
+            'parent_type' => 'admin',
+        ];
     }
 
     protected function normalizeSubordinateParams($params, $parentId)
@@ -321,15 +370,59 @@ class UserSetting extends Backend
         return $map;
     }
 
-    protected function getParentAccount($parentId)
+    protected function getParentAccount($parentId, $userId = 0)
     {
         $parentId = (int)$parentId;
         if ($parentId <= 0) {
-            return '--';
+            return $this->getInviteAdminAccount((int)$userId);
         }
 
         $map = $this->getParentAccountMap([$parentId]);
         return $map[$parentId] ?? '--';
+    }
+
+    protected function getInviteAdminAccountMap(array $userIds)
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if (!$userIds) {
+            return [];
+        }
+
+        try {
+            $rows = Db::name('admin_miniapp_user')
+                ->alias('relation')
+                ->join('fa_admin admin', 'admin.id = relation.admin_id', 'LEFT')
+                ->where('relation.user_id', 'in', $userIds)
+                ->field('relation.user_id,admin.username,admin.nickname,admin.mobile')
+                ->select();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($rows as $row) {
+            $account = trim((string)($row['username'] ?? ''));
+            if ($account === '') {
+                $account = trim((string)($row['nickname'] ?? ''));
+            }
+            if ($account === '') {
+                $account = trim((string)($row['mobile'] ?? ''));
+            }
+            $map[(int)$row['user_id']] = $account !== '' ? $account : '--';
+        }
+
+        return $map;
+    }
+
+    protected function getInviteAdminAccount($userId)
+    {
+        $userId = (int)$userId;
+        if ($userId <= 0) {
+            return '--';
+        }
+
+        $map = $this->getInviteAdminAccountMap([$userId]);
+        return $map[$userId] ?? '--';
     }
 
     protected function getDispatchModeList()
@@ -472,7 +565,7 @@ class UserSetting extends Backend
 
     public function selectpage()
     {
-        if ($this->isMiniappAgentAdmin()) {
+        if (!$this->auth->isSuperAdmin()) {
             $this->error(__('You have no permission'), '');
         }
         return parent::selectpage();

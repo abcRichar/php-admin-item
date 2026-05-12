@@ -96,6 +96,7 @@ class Auth extends \fast\Auth
             return false;
         }
 
+        $parentAdminId = $this->resolveMiniappAgentParentAdminId($user);
         $admin = Admin::get(['miniapp_user_id' => (int)$user['id'], 'admin_type' => self::ADMIN_TYPE_AGENT]);
         $now = time();
         if (!$admin) {
@@ -115,6 +116,7 @@ class Auth extends \fast\Auth
                 'status' => 'normal',
                 'admin_type' => self::ADMIN_TYPE_AGENT,
                 'miniapp_user_id' => (int)$user['id'],
+                'parent_admin_id' => $parentAdminId,
             ]);
         } else {
             if ($admin['status'] === 'hidden') {
@@ -127,6 +129,9 @@ class Auth extends \fast\Auth
             $admin->logintime = $now;
             $admin->loginip = request()->ip();
             $admin->token = Random::uuid();
+            if ($parentAdminId > 0) {
+                $admin->parent_admin_id = $parentAdminId;
+            }
             $admin->save();
         }
 
@@ -148,6 +153,20 @@ class Auth extends \fast\Auth
         return true;
     }
 
+    protected function resolveMiniappAgentParentAdminId($user)
+    {
+        $parentUserId = (int)($user['parent_id'] ?? 0);
+        if ($parentUserId <= 0) {
+            return 0;
+        }
+
+        return (int)Db::name('admin')
+            ->where('admin_type', self::ADMIN_TYPE_AGENT)
+            ->where('miniapp_user_id', $parentUserId)
+            ->where('status', 'normal')
+            ->value('id');
+    }
+
     protected function ensureMiniappAgentGroup()
     {
         $allowedRuleNames = [
@@ -155,6 +174,8 @@ class Auth extends \fast\Auth
             'miniapp/user_setting',
             'miniapp/user_setting/index',
             'miniapp/user_setting/create_subordinate',
+            'miniapp/user_setting/recharge',
+            'miniapp/user_setting/withdraw',
             'miniapp/finance_record',
             'miniapp/finance_record/index',
             'miniapp/order_action_record',

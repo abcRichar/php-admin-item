@@ -37,19 +37,22 @@ class FinanceRecord extends Backend
                 ->join('fa_miniapp_user user', 'user.id = record.user_id', 'LEFT')
                 ->field('record.*,user.tel,user.username,user.nickname')
                 ->where($where);
-            if ($this->isMiniappAgentAdmin()) {
-                $agentUserId = $this->getMiniappAgentUserId();
-                if ($agentUserId <= 0) {
-                    $query->where('1=0');
-                } else {
-                    $query->where(function ($query) use ($agentUserId) {
-                        $query->where('user.parent_id', $agentUserId)
-                            ->whereOr(function ($query) use ($agentUserId) {
-                                $query->where('record.user_id', $agentUserId)
-                                    ->where('record.type', 4);
-                            });
-                    });
-                }
+            if (!$this->auth->isSuperAdmin()) {
+                $scopedUserIds = $this->getScopedMiniappUserIds(false);
+                $agentUserId = $this->isMiniappAgentAdmin() ? $this->getMiniappAgentUserId() : 0;
+                $query->where(function ($query) use ($scopedUserIds, $agentUserId) {
+                    if ($scopedUserIds) {
+                        $query->where('record.user_id', 'in', $scopedUserIds);
+                    } else {
+                        $query->where('1=0');
+                    }
+                    if ($agentUserId > 0) {
+                        $query->whereOr(function ($query) use ($agentUserId) {
+                            $query->where('record.user_id', $agentUserId)
+                                ->where('record.type', 4);
+                        });
+                    }
+                });
             }
             $list = $query->order($sort, $order)->paginate($limit);
 

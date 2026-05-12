@@ -33,6 +33,8 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                         {field: 'id', title: 'ID'},
                         {field: 'username', title: __('Username')},
                         {field: 'nickname', title: __('Nickname')},
+                        {field: 'parent_admin_text', title: __('Parent_admin'), operate: false},
+                        {field: 'invite_code', title: __('Invite_code'), operate: 'LIKE'},
                         {field: 'groups_text', title: __('Group'), operate:false, formatter: Table.api.formatter.label},
                         {field: 'email', title: __('Email')},
                         {field: 'mobile', title: __('Mobile')},

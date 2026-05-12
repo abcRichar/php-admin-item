@@ -33,7 +33,10 @@ class Admin extends Backend
         parent::_initialize();
         $this->model = model('Admin');
 
-        $this->childrenAdminIds = $this->auth->getChildrenAdminIds($this->auth->isSuperAdmin());
+        $this->childrenAdminIds = $this->getManageableAdminIds();
+        if (!$this->childrenAdminIds) {
+            $this->childrenAdminIds = [0];
+        }
         $this->childrenGroupIds = $this->auth->getChildrenGroupIds($this->auth->isSuperAdmin());
 
         $groupList = collection(AuthGroup::where('id', 'in', $this->childrenGroupIds)->select())->toArray();
@@ -60,6 +63,10 @@ class Admin extends Backend
         }
 
         $this->view->assign('groupdata', $groupdata);
+        $this->view->assign('parentAdminList', $this->getParentAdminList());
+        $this->view->assign('canSelectParentAdmin', $this->auth->isSuperAdmin());
+        $this->view->assign('defaultParentAdminId', $this->auth->isSuperAdmin() ? 0 : (int)$this->auth->id);
+        $this->view->assign('defaultParentAdminText', $this->auth->isSuperAdmin() ? __('No parent admin') : $this->auth->username);
         $this->assignconfig("admin", ['id' => $this->auth->id]);
     }
 
@@ -101,10 +108,19 @@ class Admin extends Backend
                 ->order($sort, $order)
                 ->paginate($limit);
 
+            $parentAdminIds = [];
+            foreach ($list->items() as $item) {
+                if (!empty($item['parent_admin_id'])) {
+                    $parentAdminIds[] = (int)$item['parent_admin_id'];
+                }
+            }
+            $parentAdminMap = $this->getParentAdminMap($parentAdminIds);
             foreach ($list as $k => &$v) {
                 $groups = isset($adminGroupName[$v['id']]) ? $adminGroupName[$v['id']] : [];
                 $v['groups'] = implode(',', array_keys($groups));
                 $v['groups_text'] = implode(',', array_values($groups));
+                $v['parent_admin_text'] = $parentAdminMap[(int)($v['parent_admin_id'] ?? 0)] ?? __('No parent admin');
+                $v['invite_code'] = $this->ensureAdminInviteCode($v);
             }
             unset($v);
             $result = array("total" => $list->total(), "rows" => $list->items());
@@ -131,6 +147,10 @@ class Admin extends Backend
                     $params['salt'] = Random::alnum();
                     $params['password'] = $this->auth->getEncryptPassword($params['password'], $params['salt']);
                     $params['avatar'] = '/assets/img/avatar.png'; //设置新管理员默认头像。
+                    $params['admin_type'] = 'admin';
+                    $params['miniapp_user_id'] = 0;
+                    $params['parent_admin_id'] = $this->normalizeParentAdminId((int)($params['parent_admin_id'] ?? 0));
+                    $params['invite_code'] = $this->generateAdminInviteCode();
                     $result = $this->model->validate('Admin.add')->save($params);
                     if ($result === false) {
                         exception($this->model->getError());
@@ -188,6 +208,11 @@ class Admin extends Backend
                         unset($params['password'], $params['salt']);
                     }
                     //这里需要针对username和email做唯一验证
+                    $params['parent_admin_id'] = $this->normalizeParentAdminId((int)($params['parent_admin_id'] ?? 0), (int)$row->id, (int)($row['parent_admin_id'] ?? 0));
+                    if (empty($row['invite_code'])) {
+                        $params['invite_code'] = $this->generateAdminInviteCode();
+                    }
+                    unset($params['admin_type'], $params['miniapp_user_id']);
                     $adminValidate = \think\Loader::validate('Admin');
                     $adminValidate->rule([
                         'username' => 'require|regex:\w{3,30}|unique:admin,username,' . $row->id,
@@ -199,7 +224,6 @@ class Admin extends Backend
                     if ($result === false) {
                         exception($row->getError());
                     }
-
                     // 先移除所有权限
                     model('AuthGroupAccess')->where('uid', $row->id)->delete();
 
@@ -225,6 +249,11 @@ class Admin extends Backend
             }
             $this->error(__('Parameter %s can not be empty', ''));
         }
+        $this->view->assign('parentAdminList', $this->getParentAdminList((int)$row->id));
+        $this->view->assign('canSelectParentAdmin', $this->auth->isSuperAdmin());
+        $this->view->assign('defaultParentAdminId', (int)($row['parent_admin_id'] ?? 0));
+        $this->view->assign('defaultParentAdminText', $this->getParentAdminDisplayName((int)($row['parent_admin_id'] ?? 0)));
+        $row['invite_code'] = $this->ensureAdminInviteCode($row);
         $grouplist = $this->auth->getGroups($row['id']);
         $groupids = [];
         foreach ($grouplist as $k => $v) {
@@ -293,5 +322,141 @@ class Admin extends Backend
         $this->dataLimit = 'auth';
         $this->dataLimitField = 'id';
         return parent::selectpage();
+    }
+
+    protected function getManageableAdminIds()
+    {
+        if ($this->auth->isSuperAdmin()) {
+            return $this->auth->getChildrenAdminIds(true);
+        }
+
+        $roleAdminIds = array_map('intval', $this->auth->getChildrenAdminIds(false));
+        $treeAdminIds = $this->getChildAdminIds((int)$this->auth->id, false);
+        if (!$roleAdminIds || !$treeAdminIds) {
+            return [];
+        }
+
+        return array_values(array_intersect($roleAdminIds, $treeAdminIds));
+    }
+
+    protected function getParentAdminList($excludeAdminId = 0)
+    {
+        $list = [0 => __('No parent admin')];
+        if (!$this->auth->isSuperAdmin()) {
+            $list[(int)$this->auth->id] = $this->auth->username;
+            return $list;
+        }
+
+        $excludeIds = [];
+        $excludeAdminId = (int)$excludeAdminId;
+        if ($excludeAdminId > 0) {
+            $excludeIds = $this->getChildAdminIds($excludeAdminId, true);
+        }
+
+        $query = $this->model
+            ->where('status', '<>', 'hidden')
+            ->field('id,username,nickname');
+        if ($excludeIds) {
+            $query->where('id', 'not in', $excludeIds);
+        }
+
+        $rows = $query->order('id', 'asc')->select();
+        foreach ($rows as $row) {
+            $list[(int)$row['id']] = $this->formatAdminDisplayName($row);
+        }
+
+        return $list;
+    }
+
+    protected function normalizeParentAdminId($parentAdminId, $rowId = 0, $currentParentAdminId = null)
+    {
+        if (!$this->auth->isSuperAdmin()) {
+            return $rowId > 0 ? (int)$currentParentAdminId : (int)$this->auth->id;
+        }
+
+        $parentAdminId = (int)$parentAdminId;
+        $rowId = (int)$rowId;
+        if ($parentAdminId <= 0) {
+            return 0;
+        }
+        if ($rowId > 0 && $parentAdminId === $rowId) {
+            exception(__('Parent admin is invalid'));
+        }
+        if ($rowId > 0 && in_array($parentAdminId, $this->getChildAdminIds($rowId, true), true)) {
+            exception(__('Parent admin is invalid'));
+        }
+
+        $parent = $this->model->where('id', $parentAdminId)->where('status', '<>', 'hidden')->find();
+        if (!$parent) {
+            exception(__('Parent admin is invalid'));
+        }
+
+        return $parentAdminId;
+    }
+
+    protected function getParentAdminMap($parentAdminIds)
+    {
+        $parentAdminIds = array_values(array_unique(array_filter(array_map('intval', (array)$parentAdminIds))));
+        if (!$parentAdminIds) {
+            return [];
+        }
+
+        $rows = $this->model
+            ->where('id', 'in', $parentAdminIds)
+            ->field('id,username,nickname')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = $this->formatAdminDisplayName($row);
+        }
+
+        return $map;
+    }
+
+    protected function getParentAdminDisplayName($parentAdminId)
+    {
+        $parentAdminId = (int)$parentAdminId;
+        if ($parentAdminId <= 0) {
+            return __('No parent admin');
+        }
+
+        $map = $this->getParentAdminMap([$parentAdminId]);
+        return $map[$parentAdminId] ?? __('No parent admin');
+    }
+
+    protected function formatAdminDisplayName($row)
+    {
+        return (string)($row['nickname'] ?: $row['username'] ?: ('ID:' . $row['id']));
+    }
+
+    protected function ensureAdminInviteCode($row)
+    {
+        $inviteCode = trim((string)($row['invite_code'] ?? ''));
+        if ($inviteCode !== '') {
+            return $inviteCode;
+        }
+
+        $inviteCode = $this->generateAdminInviteCode();
+        $this->model->where('id', (int)$row['id'])->update([
+            'invite_code' => $inviteCode,
+            'updatetime'  => time(),
+        ]);
+
+        return $inviteCode;
+    }
+
+    protected function generateAdminInviteCode()
+    {
+        for ($i = 0; $i < 20; $i++) {
+            $code = 'A' . strtoupper(substr(md5($this->auth->id . '_' . microtime(true) . '_' . Random::alnum(8)), 0, 7));
+            $adminExists = $this->model->where('invite_code', $code)->find();
+            $userExists = Db::name('miniapp_user')->where('invite_code', $code)->find();
+            if (!$adminExists && !$userExists) {
+                return $code;
+            }
+        }
+
+        return 'A' . strtoupper(substr(md5(uniqid('', true)), 0, 11));
     }
 }
