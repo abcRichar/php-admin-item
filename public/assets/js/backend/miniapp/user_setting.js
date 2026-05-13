@@ -16,6 +16,27 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
       });
 
       var table = $("#table");
+      table.data("operate-create_subordinate", true);
+      var createSubordinateButton = function (row, index) {
+        var url = Fast.api.fixurl(
+          Table.api.replaceurl(
+            "miniapp/user_setting/create_subordinate",
+            row,
+            table
+          )
+        );
+        return (
+          '<a href="' +
+          url +
+          '" class="btn btn-xs btn-success btn-dialog" title="' +
+          __("Create_subordinate") +
+          '" data-table-id="table" data-row-index="' +
+          index +
+          '"><i class="fa fa-user-plus"></i> ' +
+          __("Create_subordinate") +
+          "</a>"
+        );
+      };
       if (parseInt(Config.canCreateSubordinate || 0, 10) === 1) {
         $(".btn-create-subordinate").removeClass("hidden");
       }
@@ -117,18 +138,19 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
                   url: "miniapp/user_setting/withdraw",
                 },
                 {
-                  name: "create_subordinate",
-                  text: __("Create_subordinate"),
-                  title: __("Create_subordinate"),
-                  icon: "fa fa-user-plus",
-                  classname: "btn btn-xs btn-success btn-dialog",
-                  url: "miniapp/user_setting/create_subordinate",
-                  visible: function () {
-                    return parseInt(Config.isMiniappAgent || 0, 10) !== 1;
-                  },
+                  name: "create_subordinate_placeholder",
+                  hidden: true,
                 },
               ],
-              formatter: Table.api.formatter.operate,
+              formatter: function (value, row, index) {
+                var html = Table.api.formatter.operate.call(
+                  this,
+                  value,
+                  row,
+                  index
+                );
+                return html + " " + createSubordinateButton(row, index);
+              },
             },
           ],
         ],

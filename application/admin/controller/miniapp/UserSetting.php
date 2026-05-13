@@ -129,10 +129,6 @@ class UserSetting extends Backend
 
     public function create_subordinate($ids = null)
     {
-        if ($this->auth->isSuperAdmin()) {
-            $this->error(__('You have no permission'), '');
-        }
-
         $parent = $this->resolveSubordinateParent($ids);
 
         if (!$this->request->isPost()) {
@@ -207,13 +203,20 @@ class UserSetting extends Backend
 
     protected function resolveSubordinateParent($ids = null)
     {
-        if (!$this->auth->isSuperAdmin() && !$this->isMiniappAgentAdmin()) {
+        $requestedParentId = (int)($ids ?: $this->request->param('parent_id', 0));
+        if (!$this->auth->isSuperAdmin() && !$this->isMiniappAgentAdmin() && $requestedParentId <= 0) {
             return $this->getCurrentAdminAsSubordinateParent();
         }
 
-        $parentId = $this->isMiniappAgentAdmin()
-            ? $this->getMiniappAgentUserId()
-            : (int)($ids ?: $this->request->param('parent_id', 0));
+        if ($this->isMiniappAgentAdmin()) {
+            $agentUserId = $this->getMiniappAgentUserId();
+            $parentId = $requestedParentId > 0 ? $requestedParentId : $agentUserId;
+            if ($parentId !== $agentUserId) {
+                $this->assertMiniappAgentCanAccessUser($parentId);
+            }
+        } else {
+            $parentId = $requestedParentId;
+        }
 
         if ($parentId <= 0) {
             $this->error(__('Please select parent account'));
