@@ -173,6 +173,7 @@ class Auth extends \fast\Auth
             'miniapp',
             'miniapp/user_setting',
             'miniapp/user_setting/index',
+            'miniapp/user_setting/edit',
             'miniapp/user_setting/create_subordinate',
             'miniapp/user_setting/recharge',
             'miniapp/user_setting/withdraw',

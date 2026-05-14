@@ -358,6 +358,21 @@ class RotOrder extends MiniappBase
       return null;
     }
   }
+
+  protected function assertTaskUpdateEnabled($user)
+  {
+    if ((int)($user['task_update_status'] ?? 1) !== 1) {
+      $this->apiError(__('miniapp.task_update_disabled'), null, 400);
+    }
+  }
+
+  protected function closeTaskUpdateStatus($userId)
+  {
+    Db::name('miniapp_user')->where('id', (int)$userId)->update([
+      'task_update_status' => 0,
+      'update_time'        => time(),
+    ]);
+  }
   /**
    * 抢单页数据 - 对齐线上字段
    * 线上返回: {lock_deal, day_deal, completed_count, order_num, level_bili,
@@ -438,7 +453,12 @@ class RotOrder extends MiniappBase
         ->order('id desc')
         ->find();
 
+      if ($undoneOrder && (int)$undoneOrder['status'] === 0) {
+        $this->assertTaskUpdateEnabled($user);
+      }
+
       if (!$undoneOrder) {
+        $this->assertTaskUpdateEnabled($user);
         $undoneOrder = $this->buildOrderUndonePreview($user, $currentGoods, $dispatchPlan, $nextTodayDan);
         if ($undoneOrder) {
           $incompleteCount++;
@@ -487,6 +507,7 @@ class RotOrder extends MiniappBase
         if ((int)$undone['status'] === 1) {
           $this->apiError(__('miniapp.has_undone_order'), null, 400);
         }
+        $this->assertTaskUpdateEnabled($user);
 
         $requiredAmount = round((float)($undone['num'] ?? $undone['amount'] ?? 0), 2);
         $balance = round((float)$user['balance'], 2);
@@ -524,6 +545,10 @@ class RotOrder extends MiniappBase
             'status' => 1,
             'create_time' => $now,
           ]);
+          Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+            'task_update_status' => 0,
+            'update_time' => $now,
+          ]);
           Db::commit();
         } catch (\Throwable $e) {
           Db::rollback();
@@ -545,6 +570,7 @@ class RotOrder extends MiniappBase
       if (!$goods) {
         $this->apiError(__('miniapp.goods_not_found'), null, 404);
       }
+      $this->assertTaskUpdateEnabled($user);
 
       $now = time();
       $orderNo   = 'UB' . date('ymdHis') . mt_rand(1000, 9999);
@@ -624,6 +650,10 @@ class RotOrder extends MiniappBase
             'update_time' => $now,
           ]);
         }
+        Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+          'task_update_status' => 0,
+          'update_time' => $now,
+        ]);
         Db::commit();
       } catch (\Throwable $e) {
         Db::rollback();

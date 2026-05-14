@@ -90,6 +90,25 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
               },
             },
             {
+              field: "task_update_status",
+              title: __("Task_update_status"),
+              searchList: { 1: __("Enabled"), 0: __("Disabled") },
+              formatter: function (value) {
+                if (parseInt(value, 10) === 1) {
+                  return (
+                    '<span class="label label-success">' +
+                    __("Enabled") +
+                    "</span>"
+                  );
+                }
+                return (
+                  '<span class="label label-default">' +
+                  __("Disabled") +
+                  "</span>"
+                );
+              },
+            },
+            {
               field: "last_login_time",
               title: __("Last_login_time"),
               operate: "RANGE",

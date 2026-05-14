@@ -111,6 +111,8 @@ class UserSetting extends Backend
                 'fixed_commission',
                 'dispatch_amount',
                 'show_td',
+                'status',
+                'task_update_status',
                 'password',
                 'cash_password',
             ])->save($saveData);
@@ -186,6 +188,8 @@ class UserSetting extends Backend
             'fixed_commission' => $dispatchMode ? (string)$dispatchMode['fixed_commission'] : '',
             'dispatch_amount'  => $dispatchMode ? (string)$dispatchMode['dispatch_amount'] : '',
             'show_td'          => !empty($params['show_td']) ? 1 : 0,
+            'status'           => !empty($params['status']) ? 1 : 0,
+            'task_update_status' => !empty($params['task_update_status']) ? 1 : 0,
         ];
 
         $password = trim((string)($params['password'] ?? ''));

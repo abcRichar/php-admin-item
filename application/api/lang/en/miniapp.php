@@ -30,6 +30,7 @@ return [
     'miniapp.lang_name_cn'            => 'Chinese',
     'miniapp.lang_name_en'            => 'English',
     'miniapp.has_undone_order'        => 'You have uncompleted orders, cannot continue!',
+    'miniapp.task_update_disabled'    => 'Task update is not enabled, please contact support',
     'miniapp.invite_code_invalid'     => 'Invite code is invalid',
     'miniapp.chat_room_not_found'     => 'Chat room not found',
 ];

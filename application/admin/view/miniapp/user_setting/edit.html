@@ -40,6 +40,24 @@
     </div>
   </div>
   <div class="form-group">
+    <label class="control-label col-xs-12 col-sm-2">{:__('Login_status')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <label for="c-status">
+        <input id="c-status" name="row[status]" type="checkbox" value="1" {if condition="(int)$row.status === 1"}checked{/if} />
+        {:__('Login allowed when enabled')}
+      </label>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="control-label col-xs-12 col-sm-2">{:__('Task_update_status')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <label for="c-task_update_status">
+        <input id="c-task_update_status" name="row[task_update_status]" type="checkbox" value="1" {if condition="!isset($row.task_update_status) || (int)$row.task_update_status === 1"}checked{/if} />
+        {:__('New task can be generated once when enabled')}
+      </label>
+    </div>
+  </div>
+  <div class="form-group">
     <label for="c-dispatch_mode_id" class="control-label col-xs-12 col-sm-2">{:__('Dispatch_mode')}:</label>
     <div class="col-xs-12 col-sm-8">
       <select id="c-dispatch_mode_id" name="row[dispatch_mode_id]" class="form-control selectpicker">
