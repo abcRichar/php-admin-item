@@ -22,6 +22,7 @@ function assert_contains($content, $needle, $message)
 }
 
 $rotOrder = file_get_contents($root . '/application/api/controller/miniapp/RotOrder.php');
+$miniappBase = file_get_contents($root . '/application/api/controller/miniapp/MiniappBase.php');
 $userSetting = file_get_contents($root . '/application/admin/controller/miniapp/UserSetting.php');
 $editView = file_get_contents($root . '/application/admin/view/miniapp/user_setting/edit.html');
 $sql = file_get_contents($root . '/database/sql/20260513_add_miniapp_user_task_update_status.sql');
@@ -76,8 +77,14 @@ assert_contains(
 
 assert_contains(
     $rotOrder,
-    "__('miniapp.task_update_disabled')",
-    'Disabled task update returns dedicated API error message'
+    "apiBusinessError(__('miniapp.task_update_disabled')",
+    'Disabled task update returns dedicated business error message'
+);
+
+assert_contains(
+    $miniappBase,
+    "['statuscode' => 200]",
+    'Business errors keep HTTP status 200'
 );
 
 echo "All miniapp task update switch checks passed.\n";

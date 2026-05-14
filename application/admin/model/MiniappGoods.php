@@ -35,6 +35,22 @@ class MiniappGoods extends Model
         ];
     }
 
+    public function setLanguageAttr($value)
+    {
+        $language = strtolower(trim((string)$value));
+        $map = [
+            'zh_cn' => '1',
+            'zh-cn' => '1',
+            'zh' => '1',
+            'cn' => '1',
+            'en' => '2',
+            'en_us' => '2',
+            'en-us' => '2',
+        ];
+
+        return $map[$language] ?? (string)$value;
+    }
+
     public function getCreateTimeTextAttr($value, $data)
     {
         $value = $value ?: ($data['create_time'] ?? 0);

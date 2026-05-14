@@ -44,6 +44,11 @@ class MiniappBase extends Api
     $this->error($msg, $data, $statusCode, null, ['statuscode' => $statusCode]);
   }
 
+  protected function apiBusinessError($msg = '', $data = null, $code = 400)
+  {
+    $this->error($msg, $data, $code, null, ['statuscode' => 200]);
+  }
+
   protected function execute(callable $callback)
   {
     try {
@@ -227,6 +232,18 @@ class MiniappBase extends Api
     return (int)$language === self::LANGUAGE_EN ? __('miniapp.lang_name_en') : __('miniapp.lang_name_cn');
   }
 
+  protected function getLanguageAliases($language)
+  {
+    $config = is_array($language) ? $language : $this->normalizeLanguage($language);
+    $value = (int)($config['value'] ?? self::LANGUAGE_CN);
+
+    if ($value === self::LANGUAGE_EN) {
+      return ['2', 'en', 'en_us', 'en-us'];
+    }
+
+    return ['1', 'zh_cn', 'zh-cn', 'zh', 'cn'];
+  }
+
   protected function resolveLanguageConfig($allowHistory = false)
   {
     $languageInput = $this->request->header('language', $this->request->param('language', ''));
@@ -252,17 +269,19 @@ class MiniappBase extends Api
   {
     $token = $this->getToken();
     if ($token !== '') {
-      $language = Db::name('miniapp_support_language_log')->where('token', $token)->order('id desc')->value('language');
-      if ($language !== null && $language !== '') {
-        return $this->normalizeLanguage($language);
+      $user = Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
+      $languageQuery = Db::name('miniapp_support_language_log');
+      if ($user) {
+        $languageQuery->where(function ($query) use ($token, $user) {
+          $query->where('token', $token)->whereOr('user_id', (int)$user['id']);
+        });
+      } else {
+        $languageQuery->where('token', $token);
       }
 
-      $user = Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
-      if ($user) {
-        $language = Db::name('miniapp_support_language_log')->where('user_id', (int)$user['id'])->order('id desc')->value('language');
-        if ($language !== null && $language !== '') {
-          return $this->normalizeLanguage($language);
-        }
+      $language = $languageQuery->order('create_time desc,id desc')->value('language');
+      if ($language !== null && $language !== '') {
+        return $this->normalizeLanguage($language);
       }
     }
     return null;

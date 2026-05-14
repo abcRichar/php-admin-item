@@ -77,7 +77,7 @@ class RotOrder extends MiniappBase
   {
     $query = Db::name('miniapp_config')->where('name', $name);
     if ($language !== null) {
-      $value = $query->where('language', $language)->value('value');
+      $value = $query->where('language', 'in', $this->getLanguageAliases($language))->value('value');
       if ($value !== null && $value !== '') {
         return $value;
       }
@@ -89,6 +89,76 @@ class RotOrder extends MiniappBase
     }
 
     return $value;
+  }
+
+  protected function findActiveGoodsByLanguage($language)
+  {
+    $goods = Db::name('miniapp_goods')
+      ->where('status', 1)
+      ->where('language', 'in', $this->getLanguageAliases($language))
+      ->order('sort desc,id asc')
+      ->find();
+
+    if (!$goods && (int)$language !== self::LANGUAGE_CN) {
+      $goods = Db::name('miniapp_goods')
+        ->where('status', 1)
+        ->where('language', 'in', $this->getLanguageAliases(self::LANGUAGE_CN))
+        ->order('sort desc,id asc')
+        ->find();
+    }
+
+    return $goods ?: null;
+  }
+
+  protected function orderLanguageMatches($order, $language)
+  {
+    $orderLanguage = strtolower(trim((string)($order['language'] ?? '')));
+    if ($orderLanguage === '') {
+      return false;
+    }
+
+    return in_array($orderLanguage, $this->getLanguageAliases($language), true);
+  }
+
+  protected function refreshPreviewOrderLanguage($user, $undoneOrder, $goods, $language)
+  {
+    if (!$undoneOrder || !$goods || (int)($undoneOrder['status'] ?? -1) !== 0) {
+      return $undoneOrder;
+    }
+
+    if ($this->orderLanguageMatches($undoneOrder, $language) && (int)($undoneOrder['goods_id'] ?? 0) === (int)$goods['id']) {
+      return $undoneOrder;
+    }
+
+    $todayDan = (int)($undoneOrder['today_dan'] ?? 0);
+    if ($todayDan <= 0) {
+      $todayDan = 1;
+    }
+    $dispatchPlan = $this->buildDispatchOrderPlan($user, $goods, $todayDan, $language);
+    if (!$dispatchPlan) {
+      return $undoneOrder;
+    }
+
+    $now = time();
+    Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->update([
+      'goods_id'            => (int)$goods['id'],
+      'goods_count'         => (int)$dispatchPlan['goods_count'],
+      'goods_name'          => (string)$goods['title'],
+      'shop_name'           => (string)$goods['title'],
+      'goods_price'         => (float)$dispatchPlan['goods_price'],
+      'goods_pic'           => (string)$goods['image'],
+      'goods_image'         => (string)$goods['image'],
+      'amount'              => (float)$dispatchPlan['amount'],
+      'num'                 => (float)$dispatchPlan['amount'],
+      'user_balance'        => (float)$user['balance'],
+      'user_freeze_balance' => (float)($user['freeze_balance'] ?? 0),
+      'commission'          => (float)$dispatchPlan['commission'],
+      'parent_commission'   => $this->calculateParentCommission((float)$dispatchPlan['commission']),
+      'language'            => (string)$language,
+      'update_time'         => $now,
+    ]);
+
+    return Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->find() ?: $undoneOrder;
   }
 
   protected function resolveRuleIndex($dispatchOrderValue, $todayDan)
@@ -362,7 +432,9 @@ class RotOrder extends MiniappBase
   protected function assertTaskUpdateEnabled($user)
   {
     if ((int)($user['task_update_status'] ?? 1) !== 1) {
-      $this->apiError(__('miniapp.task_update_disabled'), null, 400);
+      $this->apiBusinessError(__('miniapp.task_update_disabled'), [
+        'task_update_status' => 0,
+      ], 400);
     }
   }
 
@@ -415,7 +487,10 @@ class RotOrder extends MiniappBase
 
       // 配置
       $getConf = function ($name) use ($language) {
-        $val = Db::name('miniapp_config')->where('name', $name)->where('language', $language)->value('value');
+        $val = Db::name('miniapp_config')
+          ->where('name', $name)
+          ->where('language', 'in', $this->getLanguageAliases($language))
+          ->value('value');
         if ($val === null) {
           $val = Db::name('miniapp_config')->where('name', $name)->value('value');
         }
@@ -426,10 +501,7 @@ class RotOrder extends MiniappBase
       $descInfo  = (string)($getConf('desc_info') ?: '');
       $dealZhujiTime = (string)($getConf('deal_zhuji_time') ?: '1');
       $dealShopTime  = (string)($getConf('deal_shop_time') ?: '2');
-      $currentGoods = Db::name('miniapp_goods')->where('status', 1)->where('language', $language)->order('sort desc,id asc')->find();
-      if (!$currentGoods) {
-        $currentGoods = Db::name('miniapp_goods')->where('status', 1)->where('language', self::LANGUAGE_CN)->order('sort desc,id asc')->find();
-      }
+      $currentGoods = $this->findActiveGoodsByLanguage(self::LANGUAGE_EN);
       $nextTodayDan = $todayCompleted + $incompleteCount + 1;
       $dispatchPlan = $currentGoods ? $this->buildDispatchOrderPlan($user, $currentGoods, $nextTodayDan, $language) : null;
 
@@ -455,6 +527,7 @@ class RotOrder extends MiniappBase
 
       if ($undoneOrder && (int)$undoneOrder['status'] === 0) {
         $this->assertTaskUpdateEnabled($user);
+        $undoneOrder = $this->refreshPreviewOrderLanguage($user, $undoneOrder, $currentGoods, $language);
       }
 
       if (!$undoneOrder) {
@@ -563,10 +636,7 @@ class RotOrder extends MiniappBase
       }
 
       $language = $this->getLanguageValue();
-      $goods = Db::name('miniapp_goods')->where('status', 1)->where('language', $language)->order('sort desc,id asc')->find();
-      if (!$goods) {
-        $goods = Db::name('miniapp_goods')->where('status', 1)->where('language', self::LANGUAGE_CN)->order('sort desc,id asc')->find();
-      }
+      $goods = $this->findActiveGoodsByLanguage($language);
       if (!$goods) {
         $this->apiError(__('miniapp.goods_not_found'), null, 404);
       }

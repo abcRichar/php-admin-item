@@ -13,23 +13,24 @@ class Support extends MiniappBase
   public function index()
   {
     $this->execute(function () {
+      $user = $this->getMiniappUser();
       $language = $this->getLanguageValue();
       $rows = Db::name('miniapp_support')
         ->where('status', 1)
-        ->where('language', $language)
+        ->where('language', 'in', $this->getLanguageAliases($language))
         ->order('sort desc,id desc')
         ->select();
       if (!$rows && $language !== self::LANGUAGE_CN) {
         $rows = Db::name('miniapp_support')
           ->where('status', 1)
-          ->where('language', self::LANGUAGE_CN)
+          ->where('language', 'in', $this->getLanguageAliases(self::LANGUAGE_CN))
           ->order('sort desc,id desc')
           ->select();
       }
       $first = $rows ? $rows[0] : null;
-      $resolvedLanguage = $first ? (int)$first['language'] : $language;
+      $resolvedLanguage = $first ? (int)($this->normalizeLanguage($first['language'])['value'] ?? $language) : $language;
 
-      $this->logRequest(0);
+      $this->logRequest((int)$user['id']);
       $this->apiSuccess(__('miniapp.success'), [
         'language'      => $resolvedLanguage,
         'language_name' => $this->getLanguageName($resolvedLanguage),
@@ -64,15 +65,15 @@ class Support extends MiniappBase
       Lang::range($languageConfig['langset']);
       Lang::load(APP_PATH . 'api/lang/' . $languageConfig['langset'] . '/miniapp.php');
 
-      $user = $this->getMiniappUser(false);
+      $user = $this->getMiniappUser();
       Db::name('miniapp_support_language_log')->insert([
-        'user_id'     => $user ? (int)$user['id'] : 0,
+        'user_id'     => (int)$user['id'],
         'language'    => $languageConfig['value'],
         'token'       => $this->getToken(),
         'create_time' => time(),
       ]);
 
-      $this->logRequest($user ? (int)$user['id'] : 0);
+      $this->logRequest((int)$user['id']);
       $this->apiSuccess(__('miniapp.success'), [
         'language'      => $languageConfig['value'],
         'language_name' => $this->getLanguageName($languageConfig['value']),
