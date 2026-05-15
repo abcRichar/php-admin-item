@@ -22,6 +22,7 @@ function assert_contains($content, $needle, $message)
 }
 
 $rotOrder = file_get_contents($root . '/application/api/controller/miniapp/RotOrder.php');
+$order = file_get_contents($root . '/application/api/controller/miniapp/Order.php');
 $miniappBase = file_get_contents($root . '/application/api/controller/miniapp/MiniappBase.php');
 $userSetting = file_get_contents($root . '/application/admin/controller/miniapp/UserSetting.php');
 $editView = file_get_contents($root . '/application/admin/view/miniapp/user_setting/edit.html');
@@ -79,6 +80,24 @@ assert_contains(
     $rotOrder,
     "apiBusinessError(__('miniapp.task_update_disabled')",
     'Disabled task update returns dedicated business error message'
+);
+
+assert_contains(
+    $rotOrder,
+    'assertDailyTaskCanContinue($user, $completedCount, $orderNum)',
+    'Daily completed task limit is checked before creating or submitting next task'
+);
+
+assert_contains(
+    $rotOrder,
+    '$this->closeTaskUpdateStatus((int)$user[\'id\'])',
+    'Daily completed task limit blocks even when task update switch was opened'
+);
+
+assert_contains(
+    $order,
+    '$completedAfter >= $this->getDailyOrderNum($language)',
+    'Completing the daily task quota closes task update switch'
 );
 
 assert_contains(

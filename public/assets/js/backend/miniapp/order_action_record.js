@@ -16,27 +16,39 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                 pk: 'id',
                 sortName: 'record.id',
                 columns: [[
-                    {field: 'id', title: __('Id'), sortable: true},
-                    {field: 'user_id', title: __('User_id'), operate: '='},
+                    {field: 'record.id', title: __('Id'), sortable: true, formatter: function (value, row) {
+                        return row.id;
+                    }},
+                    {field: 'record.user_id', title: __('User_id'), operate: '=', formatter: function (value, row) {
+                        return row.user_id;
+                    }},
                     {field: 'display_name', title: __('Display_name'), operate: false},
-                    {field: 'order_id', title: __('Order_id'), operate: '='},
-                    {field: 'order_no', title: __('Order_no'), operate: 'LIKE'},
+                    {field: 'record.order_id', title: __('Order_id'), operate: '=', formatter: function (value, row) {
+                        return row.order_id;
+                    }},
+                    {field: 'record.order_no', title: __('Order_no'), operate: 'LIKE', formatter: function (value, row) {
+                        return row.order_no;
+                    }},
                     {
-                        field: 'action',
+                        field: 'record.action',
                         title: __('Action'),
                         searchList: Config.actionList,
                         formatter: function (value, row) {
                             return row.action_text || value;
                         }
                     },
-                    {field: 'amount', title: __('Amount'), operate: 'BETWEEN', sortable: true},
+                    {field: 'record.amount', title: __('Amount'), operate: 'BETWEEN', sortable: true, formatter: function (value, row) {
+                        return row.amount;
+                    }},
                     {
-                        field: 'status',
+                        field: 'record.status',
                         title: __('Status'),
                         searchList: Config.statusList,
                         formatter: Table.api.formatter.normal
                     },
-                    {field: 'create_time', title: __('Create_time'), operate: 'RANGE', addclass: 'datetimerange', formatter: Table.api.formatter.datetime, sortable: true}
+                    {field: 'record.create_time', title: __('Create_time'), operate: 'RANGE', addclass: 'datetimerange', formatter: function (value, row) {
+                        return row.create_time_text || Table.api.formatter.datetime(row.create_time);
+                    }, sortable: true}
                 ]]
             });
 

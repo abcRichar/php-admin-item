@@ -76,6 +76,12 @@ class Order extends MiniappBase
     return $value;
   }
 
+  protected function getDailyOrderNum($language)
+  {
+    $orderNum = (int)$this->getMiniappConfigValue('order_num', $language, '60');
+    return $orderNum > 0 ? $orderNum : 60;
+  }
+
   protected function resolveRuleIndex($dispatchOrderValue, $todayDan)
   {
     $orders = $this->parseSequence($dispatchOrderValue, 'int');
@@ -463,6 +469,7 @@ class Order extends MiniappBase
       if ($oid === '') {
         $this->apiError(__('miniapp.param_error'), null, 400);
       }
+      $language = $this->getLanguageValue();
 
       $record = Db::name('miniapp_order')
         ->where('user_id', (int)$user['id'])
@@ -520,6 +527,18 @@ class Order extends MiniappBase
           'create_time' => $now,
         ]);
         $this->grantParentCommission($user, $record, $now);
+        $todayStart = $this->getBusinessTodayStartTime();
+        $completedAfter = (int)Db::name('miniapp_order')
+          ->where('user_id', (int)$user['id'])
+          ->where('status', 2)
+          ->where('complete_time', '>=', $todayStart)
+          ->count();
+        if ($completedAfter >= $this->getDailyOrderNum($language)) {
+          Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+            'task_update_status' => 0,
+            'update_time' => $now,
+          ]);
+        }
         Db::commit();
       } catch (\Throwable $e) {
         Db::rollback();

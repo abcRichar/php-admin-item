@@ -91,6 +91,24 @@ class RotOrder extends MiniappBase
     return $value;
   }
 
+  protected function getDailyOrderNum($language)
+  {
+    $orderNum = (int)$this->getMiniappConfigValue('order_num', $language, '60');
+    return $orderNum > 0 ? $orderNum : 60;
+  }
+
+  protected function assertDailyTaskCanContinue($user, $completedCount, $orderNum)
+  {
+    if ((int)$completedCount < (int)$orderNum) {
+      return;
+    }
+
+    $this->closeTaskUpdateStatus((int)$user['id']);
+    $this->apiBusinessError(__('miniapp.task_update_disabled'), [
+      'task_update_status' => 0,
+    ], 400);
+  }
+
   protected function findActiveGoodsByLanguage($language)
   {
     $goods = Db::name('miniapp_goods')
@@ -497,7 +515,7 @@ class RotOrder extends MiniappBase
         return $val;
       };
       $levelBili = (float)($getConf('level_bili') ?: 0.006);
-      $orderNum  = (int)($getConf('order_num') ?: 60);
+      $orderNum  = $this->getDailyOrderNum($language);
       $descInfo  = (string)($getConf('desc_info') ?: '');
       $dealZhujiTime = (string)($getConf('deal_zhuji_time') ?: '1');
       $dealShopTime  = (string)($getConf('deal_shop_time') ?: '2');
@@ -526,11 +544,13 @@ class RotOrder extends MiniappBase
         ->find();
 
       if ($undoneOrder && (int)$undoneOrder['status'] === 0) {
+        $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
         $this->assertTaskUpdateEnabled($user);
         $undoneOrder = $this->refreshPreviewOrderLanguage($user, $undoneOrder, $currentGoods, $language);
       }
 
       if (!$undoneOrder) {
+        $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
         $this->assertTaskUpdateEnabled($user);
         $undoneOrder = $this->buildOrderUndonePreview($user, $currentGoods, $dispatchPlan, $nextTodayDan);
         if ($undoneOrder) {
@@ -569,6 +589,14 @@ class RotOrder extends MiniappBase
   {
     $this->execute(function () {
       $user = $this->getMiniappUser();
+      $language = $this->getLanguageValue();
+      $todayStart = $this->getBusinessTodayStartTime();
+      $completedCount = (int)Db::name('miniapp_order')
+        ->where('user_id', (int)$user['id'])
+        ->where('status', 2)
+        ->where('complete_time', '>=', $todayStart)
+        ->count();
+      $orderNum = $this->getDailyOrderNum($language);
 
       // 检查未完成订单
       $undone = Db::name('miniapp_order')
@@ -580,6 +608,7 @@ class RotOrder extends MiniappBase
         if ((int)$undone['status'] === 1) {
           $this->apiError(__('miniapp.has_undone_order'), null, 400);
         }
+        $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
         $this->assertTaskUpdateEnabled($user);
 
         $requiredAmount = round((float)($undone['num'] ?? $undone['amount'] ?? 0), 2);
@@ -635,11 +664,11 @@ class RotOrder extends MiniappBase
         ]);
       }
 
-      $language = $this->getLanguageValue();
       $goods = $this->findActiveGoodsByLanguage($language);
       if (!$goods) {
         $this->apiError(__('miniapp.goods_not_found'), null, 404);
       }
+      $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
       $this->assertTaskUpdateEnabled($user);
 
       $now = time();
