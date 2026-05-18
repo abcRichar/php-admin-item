@@ -13,7 +13,8 @@ use think\Db;
 class WithdrawRecord extends Backend
 {
     protected $model = null;
-    protected $searchFields = 'id,withdraw_no,type,tel,username,nickname';
+    protected $searchFields = 'id,withdraw_no,type,withdraw_address,tel,username,nickname';
+    protected $noNeedRight = ['approve', 'reject'];
 
     public function _initialize()
     {
@@ -34,18 +35,22 @@ class WithdrawRecord extends Backend
             $query = $this->model
                 ->alias('record')
                 ->join('fa_miniapp_user user', 'user.id = record.user_id', 'LEFT')
-                ->field('record.*,user.tel,user.username,user.nickname')
+                ->join('fa_miniapp_admin_balance_audit audit', 'audit.order_no = record.withdraw_no AND audit.type = ' . UserSetting::AUDIT_TYPE_WITHDRAW, 'LEFT')
+                ->field('record.*,user.tel,user.username,user.nickname,audit.admin_id as audit_admin_submit_id,audit.audit_admin_id,audit.status as audit_status')
                 ->where($where);
             $this->applyMiniappAgentUserScope($query, 'user');
             $list = $query->order($sort, $order)->paginate($limit);
 
-            foreach ($list as $row) {
+            $items = $list->items();
+            foreach ($items as &$row) {
                 $row['display_name'] = (string)($row['username'] ?: $row['nickname'] ?: $row['tel'] ?: ('UID:' . $row['user_id']));
+                $row['can_audit'] = $this->canAuditBalanceAudit($row) ? 1 : 0;
             }
+            unset($row);
 
             return json([
                 'total' => $list->total(),
-                'rows'  => $list->items(),
+                'rows'  => $items,
             ]);
         }
 
@@ -88,6 +93,18 @@ class WithdrawRecord extends Backend
                 throw new \RuntimeException(__('Withdraw record already audited'));
             }
 
+            $audit = Db::name('miniapp_admin_balance_audit')
+                ->where('type', UserSetting::AUDIT_TYPE_WITHDRAW)
+                ->where('order_no', (string)$latest['withdraw_no'])
+                ->lock(true)
+                ->find();
+            if ($audit) {
+                $this->assertCanAuditBalanceAudit($audit);
+                if ((int)$audit['status'] !== 0) {
+                    throw new \RuntimeException(__('Withdraw record already audited'));
+                }
+            }
+
             $user = Db::name('miniapp_user')->where('id', (int)$latest['user_id'])->lock(true)->find();
             if (!$user) {
                 throw new \RuntimeException(__('No Results were found'));
@@ -113,6 +130,13 @@ class WithdrawRecord extends Backend
                 'status' => (int)$targetStatus,
                 'update_time' => $now,
             ]);
+            if ($audit) {
+                Db::name('miniapp_admin_balance_audit')->where('id', (int)$audit['id'])->update([
+                    'status' => (int)$targetStatus,
+                    'audit_time' => $now,
+                    'update_time' => $now,
+                ]);
+            }
 
             if ((int)$targetStatus === 1) {
                 Db::name('miniapp_finance_log')->insert([
@@ -158,5 +182,29 @@ class WithdrawRecord extends Backend
         }
 
         $this->success();
+    }
+
+    protected function assertCanAuditBalanceAudit($audit)
+    {
+        if ($this->canAuditBalanceAudit($audit)) {
+            return;
+        }
+
+        $this->error(__('You have no permission'), '');
+    }
+
+    protected function canAuditBalanceAudit($audit)
+    {
+        $submitAdminId = (int)($audit['audit_admin_submit_id'] ?? $audit['admin_id'] ?? 0);
+        if ($submitAdminId > 0 && $submitAdminId === $this->getCurrentAdminId()) {
+            return false;
+        }
+
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return true;
+        }
+
+        $auditAdminId = (int)($audit['audit_admin_id'] ?? 0);
+        return $auditAdminId > 0 && $auditAdminId === $this->getCurrentAdminId();
     }
 }

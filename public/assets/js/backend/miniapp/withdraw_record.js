@@ -23,6 +23,7 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                     {field: 'display_name', title: __('Display_name'), operate: false},
                     {field: 'withdraw_no', title: __('Withdraw_no'), operate: 'LIKE'},
                     {field: 'type', title: __('Type'), operate: 'LIKE'},
+                    {field: 'withdraw_address', title: __('Withdraw_address'), operate: 'LIKE'},
                     {field: 'amount', title: __('Amount'), operate: 'BETWEEN', sortable: true},
                     {
                         field: 'status',
@@ -55,7 +56,7 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                                 url: $.fn.bootstrapTable.defaults.extend.approve_url,
                                 confirm: __('Confirm approve withdraw'),
                                 visible: function (row) {
-                                    return parseInt(row.status, 10) === 0;
+                                    return parseInt(row.status, 10) === 0 && parseInt(row.can_audit || 0, 10) === 1;
                                 },
                                 success: function () {
                                     table.bootstrapTable('refresh');
@@ -70,7 +71,7 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                                 url: $.fn.bootstrapTable.defaults.extend.reject_url,
                                 confirm: __('Confirm reject withdraw'),
                                 visible: function (row) {
-                                    return parseInt(row.status, 10) === 0;
+                                    return parseInt(row.status, 10) === 0 && parseInt(row.can_audit || 0, 10) === 1;
                                 },
                                 success: function () {
                                     table.bootstrapTable('refresh');
@@ -81,7 +82,13 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                             if (parseInt(row.status, 10) !== 0) {
                                 return '<span class="text-muted">' + __('Audited') + '</span>';
                             }
-                            return Table.api.formatter.operate.call(this, value, row, index);
+                            if (parseInt(row.can_audit || 0, 10) !== 1) {
+                                return '<span class="text-muted">--</span>';
+                            }
+                            return [
+                                '<a href="' + Fast.api.fixurl($.fn.bootstrapTable.defaults.extend.approve_url + '/ids/' + row.id) + '" class="btn btn-xs btn-success btn-ajax" data-confirm="' + __('Confirm approve withdraw') + '" data-success="$(\'#table\').bootstrapTable(\'refresh\');"><i class="fa fa-check"></i> ' + __('Approve') + '</a>',
+                                '<a href="' + Fast.api.fixurl($.fn.bootstrapTable.defaults.extend.reject_url + '/ids/' + row.id) + '" class="btn btn-xs btn-danger btn-ajax" data-confirm="' + __('Confirm reject withdraw') + '" data-success="$(\'#table\').bootstrapTable(\'refresh\');"><i class="fa fa-times"></i> ' + __('Reject') + '</a>'
+                            ].join(' ');
                         }
                     }
                 ]]

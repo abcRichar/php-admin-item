@@ -5,7 +5,9 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
             Table.api.init({
                 extend: {
                     index_url: 'miniapp/recharge_record/index',
-                    table: 'miniapp_finance_log'
+                    approve_url: 'miniapp/recharge_record/approve',
+                    reject_url: 'miniapp/recharge_record/reject',
+                    table: 'miniapp_admin_balance_audit'
                 }
             });
 
@@ -19,18 +21,74 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                     {field: 'id', title: __('Id'), sortable: true},
                     {field: 'user_id', title: __('User_id'), operate: '='},
                     {field: 'display_name', title: __('Display_name'), operate: false},
-                    {field: 'oid', title: __('Oid'), operate: 'LIKE'},
+                    {field: 'order_no', title: __('Oid'), operate: 'LIKE'},
                     {field: 'amount', title: __('Amount'), operate: 'BETWEEN', sortable: true},
-                    {field: 'balance_after', title: __('Balance_after'), operate: 'BETWEEN', sortable: true},
-                    {field: 'related_order_no', title: __('Related_order_no'), operate: 'LIKE'},
                     {field: 'remark', title: __('Remark'), operate: 'LIKE'},
                     {
                         field: 'status',
                         title: __('Status'),
                         searchList: Config.statusList,
-                        formatter: Table.api.formatter.normal
+                        formatter: function (value) {
+                            if (parseInt(value, 10) === 1) {
+                                return '<span class="label label-success">' + __('Approved') + '</span>';
+                            }
+                            if (parseInt(value, 10) === 2) {
+                                return '<span class="label label-danger">' + __('Rejected') + '</span>';
+                            }
+                            return '<span class="label label-warning">' + __('Pending') + '</span>';
+                        }
                     },
-                    {field: 'create_time', title: __('Create_time'), operate: 'RANGE', addclass: 'datetimerange', formatter: Table.api.formatter.datetime, sortable: true}
+                    {field: 'create_time', title: __('Create_time'), operate: 'RANGE', addclass: 'datetimerange', formatter: Table.api.formatter.datetime, sortable: true},
+                    {
+                        field: 'operate',
+                        title: __('Operate'),
+                        table: table,
+                        events: Table.api.events.operate,
+                        buttons: [
+                            {
+                                name: 'approve',
+                                text: __('Approve'),
+                                title: __('Approve'),
+                                classname: 'btn btn-xs btn-success btn-ajax',
+                                icon: 'fa fa-check',
+                                url: $.fn.bootstrapTable.defaults.extend.approve_url,
+                                confirm: __('Confirm approve recharge'),
+                                visible: function (row) {
+                                    return parseInt(row.status, 10) === 0 && parseInt(row.can_audit || 0, 10) === 1;
+                                },
+                                success: function () {
+                                    table.bootstrapTable('refresh');
+                                }
+                            },
+                            {
+                                name: 'reject',
+                                text: __('Reject'),
+                                title: __('Reject'),
+                                classname: 'btn btn-xs btn-danger btn-ajax',
+                                icon: 'fa fa-times',
+                                url: $.fn.bootstrapTable.defaults.extend.reject_url,
+                                confirm: __('Confirm reject recharge'),
+                                visible: function (row) {
+                                    return parseInt(row.status, 10) === 0 && parseInt(row.can_audit || 0, 10) === 1;
+                                },
+                                success: function () {
+                                    table.bootstrapTable('refresh');
+                                }
+                            }
+                        ],
+                        formatter: function (value, row, index) {
+                            if (parseInt(row.status, 10) !== 0) {
+                                return '<span class="text-muted">' + __('Audited') + '</span>';
+                            }
+                            if (parseInt(row.can_audit || 0, 10) !== 1) {
+                                return '<span class="text-muted">--</span>';
+                            }
+                            return [
+                                '<a href="' + Fast.api.fixurl($.fn.bootstrapTable.defaults.extend.approve_url + '/ids/' + row.id) + '" class="btn btn-xs btn-success btn-ajax" data-confirm="' + __('Confirm approve recharge') + '" data-success="$(\'#table\').bootstrapTable(\'refresh\');"><i class="fa fa-check"></i> ' + __('Approve') + '</a>',
+                                '<a href="' + Fast.api.fixurl($.fn.bootstrapTable.defaults.extend.reject_url + '/ids/' + row.id) + '" class="btn btn-xs btn-danger btn-ajax" data-confirm="' + __('Confirm reject recharge') + '" data-success="$(\'#table\').bootstrapTable(\'refresh\');"><i class="fa fa-times"></i> ' + __('Reject') + '</a>'
+                            ].join(' ');
+                        }
+                    }
                 ]]
             });
 

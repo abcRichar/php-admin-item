@@ -16,6 +16,8 @@ class UserSetting extends Backend
     protected $searchFields = 'id,tel,username,nickname,invite_code';
     protected $noNeedRight = ['selectpage', 'create_subordinate'];
     const FINANCE_TYPE_ADMIN_RECHARGE = 8;
+    const AUDIT_TYPE_RECHARGE = 1;
+    const AUDIT_TYPE_WITHDRAW = 2;
     const PAY_CONFIG_DEFAULT_TYPE = 'USDT-TRC20';
 
     public function _initialize()
@@ -570,6 +572,77 @@ class UserSetting extends Backend
         return implode('/', $normalized);
     }
 
+    protected function shouldAuditBalanceOperation()
+    {
+        return !($this->auth && $this->auth->isSuperAdmin());
+    }
+
+    protected function getCurrentAdminParentId()
+    {
+        $adminId = $this->getCurrentAdminId();
+        if ($adminId <= 0) {
+            return 0;
+        }
+
+        return (int)Db::name('admin')
+            ->where('id', $adminId)
+            ->value('parent_admin_id');
+    }
+
+    protected function getBalanceAuditAdminId()
+    {
+        if ($this->isMiniappAgentAdmin()) {
+            $agentUserId = $this->getMiniappAgentUserId();
+            if ($agentUserId <= 0) {
+                return 0;
+            }
+
+            $parentUserId = (int)Db::name('miniapp_user')
+                ->where('id', $agentUserId)
+                ->value('parent_id');
+            if ($parentUserId > 0) {
+                $parentAgentAdminId = (int)Db::name('admin')
+                    ->where('admin_type', \app\admin\library\Auth::ADMIN_TYPE_AGENT)
+                    ->where('miniapp_user_id', $parentUserId)
+                    ->where('status', 'normal')
+                    ->value('id');
+                if ($parentAgentAdminId > 0) {
+                    return $parentAgentAdminId;
+                }
+            }
+
+            $inviteAdminId = (int)Db::name('admin_miniapp_user')
+                ->alias('relation')
+                ->join('fa_admin admin', 'admin.id = relation.admin_id', 'INNER')
+                ->where('relation.user_id', $agentUserId)
+                ->where('admin.status', 'normal')
+                ->value('relation.admin_id');
+
+            return $inviteAdminId > 0 ? $inviteAdminId : 0;
+        }
+
+        return 0;
+    }
+
+    protected function createBalanceAudit($userId, $type, $amount, $orderNo, $withdrawType = '', $remark = '', $status = 0)
+    {
+        $now = time();
+        Db::name('miniapp_admin_balance_audit')->insert([
+            'user_id'        => (int)$userId,
+            'admin_id'       => $this->getCurrentAdminId(),
+            'audit_admin_id' => $this->getBalanceAuditAdminId(),
+            'type'           => (int)$type,
+            'amount'         => round((float)$amount, 2),
+            'order_no'       => (string)$orderNo,
+            'withdraw_type'  => (string)$withdrawType,
+            'remark'         => (string)$remark,
+            'status'         => (int)$status,
+            'audit_time'     => (int)$status === 0 ? 0 : $now,
+            'create_time'    => $now,
+            'update_time'    => $now,
+        ]);
+    }
+
     public function selectpage()
     {
         if (!$this->auth->isSuperAdmin()) {
@@ -612,28 +685,50 @@ class UserSetting extends Backend
                 throw new \RuntimeException(__('No Results were found'));
             }
 
-            $newBalance = round((float)$latest['balance'] + $amount, 2);
-            $latest->save([
-                'balance'     => $newBalance,
-                'update_time' => $now,
-            ]);
+            $needAudit = $this->shouldAuditBalanceOperation();
+            if ($needAudit) {
+                $this->createBalanceAudit(
+                    (int)$latest['id'],
+                    self::AUDIT_TYPE_RECHARGE,
+                    $amount,
+                    $orderNo,
+                    '',
+                    $remark
+                );
+            } else {
+                $newBalance = round((float)$latest['balance'] + $amount, 2);
+                $latest->save([
+                    'balance'     => $newBalance,
+                    'update_time' => $now,
+                ]);
 
-            Db::name('miniapp_finance_log')->insert([
-                'user_id'          => (int)$latest['id'],
-                'uid'              => (int)$latest['id'],
-                'sid'              => (int)$latest['id'],
-                'oid'              => $orderNo,
-                'num'              => $amount,
-                'balance'          => $newBalance,
-                'addtime'          => $now,
-                'status'           => 1,
-                'type'             => self::FINANCE_TYPE_ADMIN_RECHARGE,
-                'amount'           => $amount,
-                'balance_after'    => $newBalance,
-                'related_order_no' => $orderNo,
-                'remark'           => $remark !== '' ? $remark : 'admin recharge',
-                'create_time'      => $now,
-            ]);
+                $this->createBalanceAudit(
+                    (int)$latest['id'],
+                    self::AUDIT_TYPE_RECHARGE,
+                    $amount,
+                    $orderNo,
+                    '',
+                    $remark,
+                    1
+                );
+
+                Db::name('miniapp_finance_log')->insert([
+                    'user_id'          => (int)$latest['id'],
+                    'uid'              => (int)$latest['id'],
+                    'sid'              => (int)$latest['id'],
+                    'oid'              => $orderNo,
+                    'num'              => $amount,
+                    'balance'          => $newBalance,
+                    'addtime'          => $now,
+                    'status'           => 1,
+                    'type'             => self::FINANCE_TYPE_ADMIN_RECHARGE,
+                    'amount'           => $amount,
+                    'balance_after'    => $newBalance,
+                    'related_order_no' => $orderNo,
+                    'remark'           => $remark !== '' ? $remark : 'admin recharge',
+                    'create_time'      => $now,
+                ]);
+            }
 
             Db::commit();
         } catch (\Throwable $e) {
@@ -685,37 +780,54 @@ class UserSetting extends Backend
             }
 
             $newBalance = round($balance - $amount, 2);
-            $latest->save([
+            $saveData = [
                 'balance'     => $newBalance,
                 'update_time' => $now,
-            ]);
+            ];
+            $needAudit = $this->shouldAuditBalanceOperation();
+            if ($needAudit) {
+                $saveData['freeze_balance'] = round((float)($latest['freeze_balance'] ?? 0) + $amount, 2);
+            }
+            $latest->save($saveData);
 
             Db::name('miniapp_withdraw')->insert([
                 'user_id'     => (int)$latest['id'],
                 'withdraw_no' => $withdrawNo,
                 'type'        => $type !== '' ? $type : 'admin',
                 'amount'      => $amount,
-                'status'      => 1,
+                'status'      => $needAudit ? 0 : 1,
                 'create_time' => $now,
                 'update_time' => $now,
             ]);
 
-            Db::name('miniapp_finance_log')->insert([
-                'user_id'          => (int)$latest['id'],
-                'uid'              => (int)$latest['id'],
-                'sid'              => (int)$latest['id'],
-                'oid'              => $withdrawNo,
-                'num'              => -$amount,
-                'balance'          => $newBalance,
-                'addtime'          => $now,
-                'status'           => 1,
-                'type'             => 7,
-                'amount'           => -$amount,
-                'balance_after'    => $newBalance,
-                'related_order_no' => $withdrawNo,
-                'remark'           => $remark !== '' ? $remark : 'admin withdraw',
-                'create_time'      => $now,
-            ]);
+            $this->createBalanceAudit(
+                (int)$latest['id'],
+                self::AUDIT_TYPE_WITHDRAW,
+                $amount,
+                $withdrawNo,
+                $type !== '' ? $type : 'admin',
+                $remark,
+                $needAudit ? 0 : 1
+            );
+
+            if (!$needAudit) {
+                Db::name('miniapp_finance_log')->insert([
+                    'user_id'          => (int)$latest['id'],
+                    'uid'              => (int)$latest['id'],
+                    'sid'              => (int)$latest['id'],
+                    'oid'              => $withdrawNo,
+                    'num'              => -$amount,
+                    'balance'          => $newBalance,
+                    'addtime'          => $now,
+                    'status'           => 1,
+                    'type'             => 7,
+                    'amount'           => -$amount,
+                    'balance_after'    => $newBalance,
+                    'related_order_no' => $withdrawNo,
+                    'remark'           => $remark !== '' ? $remark : 'admin withdraw',
+                    'create_time'      => $now,
+                ]);
+            }
 
             Db::commit();
         } catch (\Throwable $e) {

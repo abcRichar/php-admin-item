@@ -75,7 +75,11 @@ class Ctrl extends MiniappBase
       $num = (float)$this->request->param('num', 0);
       $type = (string)$this->request->param('type', '');
       $paypassword = (string)$this->request->param('paypassword', '');
-      if ($num <= 0 || $type === '' || $paypassword === '') {
+      $withdrawAddress = trim((string)$this->request->param('withdraw_address', ''));
+      if ($num <= 0 || $type === '' || $paypassword === '' || $withdrawAddress === '') {
+        $this->apiError(__('miniapp.param_error'), null, 400);
+      }
+      if (strlen($withdrawAddress) > 255) {
         $this->apiError(__('miniapp.param_error'), null, 400);
       }
       if (md5($paypassword) !== (string)$user['cash_password']) {
@@ -105,6 +109,7 @@ class Ctrl extends MiniappBase
           'user_id' => (int)$user['id'],
           'withdraw_no' => $withdrawNo,
           'type' => $type,
+          'withdraw_address' => $withdrawAddress,
           'amount' => $num,
           'status' => 0,
           'create_time' => $now,

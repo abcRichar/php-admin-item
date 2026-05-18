@@ -66,13 +66,17 @@ class User extends MiniappBase
       $tel = (string)$this->request->post('tel', $this->request->param('tel', ''));
       $pwd = (string)$this->request->post('pwd', $this->request->param('pwd', ''));
       $confirmPassword = (string)$this->request->post('confirmPassword', $this->request->param('confirmPassword', ''));
+      $cashPassword = (string)$this->request->post('cash_password', $this->request->param('cash_password', ''));
       $inviteCode = strtoupper(trim((string)$this->request->post('invite_code', $this->request->param('invite_code', ''))));
       $areaCode = (string)$this->request->post('area_code', $this->request->param('area_code', ''));
-      if ($tel === '' || $pwd === '' || $confirmPassword === '' || $inviteCode === '' || $areaCode === '') {
+      if ($tel === '' || $pwd === '' || $confirmPassword === '' || $cashPassword === '' || $inviteCode === '' || $areaCode === '') {
         $this->apiError(__('miniapp.param_error'), null, 400);
       }
       if ($pwd !== $confirmPassword) {
         $this->apiError(__('miniapp.password_confirm_failed'), null, 400);
+      }
+      if (strlen($cashPassword) < 6) {
+        $this->apiError(__('miniapp.param_error'), null, 400);
       }
       if (Db::name('miniapp_user')->where('tel', $tel)->find()) {
         $this->apiError(__('miniapp.tel_exists'), null, 400);
@@ -92,7 +96,7 @@ class User extends MiniappBase
       $userId = Db::name('miniapp_user')->insertGetId([
         'tel'             => $tel,
         'password'        => md5($pwd),
-        'cash_password'   => md5($pwd),
+        'cash_password'   => md5($cashPassword),
         'token'           => $token,
         'nickname'        => 'U' . substr($tel, -4),
         'avatar'          => '',

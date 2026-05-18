@@ -9,6 +9,7 @@ return [
     'Nickname' => '昵称',
     'Withdraw_no' => '提现单号',
     'Type' => '提现类型',
+    'Withdraw_address' => '提现地址',
     'Amount' => '提现金额',
     'Status' => '状态',
     'Create_time' => '创建时间',

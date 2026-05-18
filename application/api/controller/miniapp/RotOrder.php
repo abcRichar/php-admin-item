@@ -111,21 +111,38 @@ class RotOrder extends MiniappBase
 
   protected function findActiveGoodsByLanguage($language)
   {
+    return $this->selectActiveGoodsByLanguage($language, 1);
+  }
+
+  protected function findActiveGoodsListByLanguage($language)
+  {
     $goods = Db::name('miniapp_goods')
       ->where('status', 1)
       ->where('language', 'in', $this->getLanguageAliases($language))
       ->order('sort desc,id asc')
-      ->find();
+      ->select();
 
     if (!$goods && (int)$language !== self::LANGUAGE_CN) {
       $goods = Db::name('miniapp_goods')
         ->where('status', 1)
         ->where('language', 'in', $this->getLanguageAliases(self::LANGUAGE_CN))
         ->order('sort desc,id asc')
-        ->find();
+        ->select();
     }
 
-    return $goods ?: null;
+    return $goods ?: [];
+  }
+
+  protected function selectActiveGoodsByLanguage($language, $todayDan)
+  {
+    $goodsList = $this->findActiveGoodsListByLanguage($language);
+    if (!$goodsList) {
+      return null;
+    }
+
+    $todayDan = max(1, (int)$todayDan);
+    $index = ($todayDan - 1) % count($goodsList);
+    return $goodsList[$index] ?? $goodsList[0];
   }
 
   protected function orderLanguageMatches($order, $language)
@@ -519,8 +536,8 @@ class RotOrder extends MiniappBase
       $descInfo  = (string)($getConf('desc_info') ?: '');
       $dealZhujiTime = (string)($getConf('deal_zhuji_time') ?: '1');
       $dealShopTime  = (string)($getConf('deal_shop_time') ?: '2');
-      $currentGoods = $this->findActiveGoodsByLanguage(self::LANGUAGE_EN);
       $nextTodayDan = $todayCompleted + $incompleteCount + 1;
+      $currentGoods = $this->selectActiveGoodsByLanguage($language, $nextTodayDan);
       $dispatchPlan = $currentGoods ? $this->buildDispatchOrderPlan($user, $currentGoods, $nextTodayDan, $language) : null;
 
       // uinfo
@@ -546,7 +563,9 @@ class RotOrder extends MiniappBase
       if ($undoneOrder && (int)$undoneOrder['status'] === 0) {
         $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
         $this->assertTaskUpdateEnabled($user);
-        $undoneOrder = $this->refreshPreviewOrderLanguage($user, $undoneOrder, $currentGoods, $language);
+        $undoneTodayDan = (int)($undoneOrder['today_dan'] ?? 0);
+        $undoneGoods = $this->selectActiveGoodsByLanguage($language, $undoneTodayDan > 0 ? $undoneTodayDan : $nextTodayDan);
+        $undoneOrder = $this->refreshPreviewOrderLanguage($user, $undoneOrder, $undoneGoods, $language);
       }
 
       if (!$undoneOrder) {
@@ -647,10 +666,6 @@ class RotOrder extends MiniappBase
             'status' => 1,
             'create_time' => $now,
           ]);
-          Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
-            'task_update_status' => 0,
-            'update_time' => $now,
-          ]);
           Db::commit();
         } catch (\Throwable $e) {
           Db::rollback();
@@ -664,7 +679,11 @@ class RotOrder extends MiniappBase
         ]);
       }
 
-      $goods = $this->findActiveGoodsByLanguage($language);
+      $todayDan  = (int)Db::name('miniapp_order')
+        ->where('user_id', (int)$user['id'])
+        ->where('addtime', '>=', $todayStart)
+        ->count() + 1;
+      $goods = $this->selectActiveGoodsByLanguage($language, $todayDan);
       if (!$goods) {
         $this->apiError(__('miniapp.goods_not_found'), null, 404);
       }
@@ -673,9 +692,6 @@ class RotOrder extends MiniappBase
 
       $now = time();
       $orderNo   = 'UB' . date('ymdHis') . mt_rand(1000, 9999);
-      $todayDan  = (int)Db::name('miniapp_order')
-        ->where('user_id', (int)$user['id'])
-        ->where('addtime', '>=', strtotime(date('Y-m-d')))->count() + 1;
       $dispatchPlan = $this->buildDispatchOrderPlan($user, $goods, $todayDan, $language);
       if (!$dispatchPlan['can_submit']) {
         $this->apiError(__('miniapp.balance_not_enough'), [
@@ -749,10 +765,6 @@ class RotOrder extends MiniappBase
             'update_time' => $now,
           ]);
         }
-        Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
-          'task_update_status' => 0,
-          'update_time' => $now,
-        ]);
         Db::commit();
       } catch (\Throwable $e) {
         Db::rollback();
