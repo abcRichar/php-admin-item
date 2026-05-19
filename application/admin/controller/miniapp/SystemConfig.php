@@ -36,8 +36,14 @@ class SystemConfig extends Backend
             $this->error(__('Parameter %s can not be empty', ''));
         }
 
+        $customerServiceLink = trim((string)($params['customer_service_link'] ?? ''));
+        if (strlen($customerServiceLink) > 500) {
+            $this->error(__('Customer service link is too long'));
+        }
+
         $saveData = [
             'recharge_address'      => trim((string)($params['trc20_address'] ?? '')),
+            'customer_service_link' => $customerServiceLink,
             'fixed_commission_rate' => $this->normalizeRate($params['fixed_commission_rate'] ?? 0),
             'parent_rebate_rate'    => $this->normalizeRate($params['parent_rebate_rate'] ?? 0, 'Parent rebate rate'),
             'status'                => 1,
@@ -84,6 +90,7 @@ class SystemConfig extends Backend
             $row['trc20_qrcode'] = $payConfigs[self::PAY_TYPE_TRC20]['qrcode'];
             $row['erc20_address'] = $payConfigs[self::PAY_TYPE_ERC20]['address'];
             $row['erc20_qrcode'] = $payConfigs[self::PAY_TYPE_ERC20]['qrcode'];
+            $row['customer_service_link'] = isset($row['customer_service_link']) ? (string)$row['customer_service_link'] : '';
             $row['parent_rebate_rate'] = isset($row['parent_rebate_rate']) && $row['parent_rebate_rate'] !== ''
                 ? sprintf('%.2f', (float)$row['parent_rebate_rate'])
                 : '15.00';
@@ -97,6 +104,7 @@ class SystemConfig extends Backend
             'trc20_qrcode'          => $payConfigs[self::PAY_TYPE_TRC20]['qrcode'],
             'erc20_address'         => $payConfigs[self::PAY_TYPE_ERC20]['address'],
             'erc20_qrcode'          => $payConfigs[self::PAY_TYPE_ERC20]['qrcode'],
+            'customer_service_link' => '',
             'fixed_commission_rate' => $this->getDefaultCommissionRate(),
             'parent_rebate_rate'    => '15.00',
         ];

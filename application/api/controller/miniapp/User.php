@@ -20,7 +20,7 @@ class User extends MiniappBase
 
       $user = Db::name('miniapp_user')->where('tel', $tel)->where('status', 1)->find();
       if (!$user || $user['password'] !== md5($pwd)) {
-        $this->apiError(__('miniapp.login_failed'), null, 401);
+        $this->apiError(__('miniapp.login_failed'), null, 400);
       }
 
       $token = md5($user['id'] . '_' . $tel . '_' . microtime(true) . '_' . mt_rand(1000, 9999));

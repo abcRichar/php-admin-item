@@ -799,16 +799,16 @@ class UserSetting extends Backend
                 throw new \RuntimeException(__('Insufficient balance'));
             }
 
-            $newBalance = round($balance - $amount, 2);
-            $saveData = [
-                'balance'     => $newBalance,
-                'update_time' => $now,
-            ];
             $needAudit = $this->shouldAuditBalanceOperation();
             if ($needAudit) {
-                $saveData['freeze_balance'] = round((float)($latest['freeze_balance'] ?? 0) + $amount, 2);
+                $newBalance = $balance;
+            } else {
+                $newBalance = round($balance - $amount, 2);
+                $latest->save([
+                    'balance'     => $newBalance,
+                    'update_time' => $now,
+                ]);
             }
-            $latest->save($saveData);
 
             Db::name('miniapp_withdraw')->insert([
                 'user_id'     => (int)$latest['id'],

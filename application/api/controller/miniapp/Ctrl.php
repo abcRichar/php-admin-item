@@ -100,11 +100,6 @@ class Ctrl extends MiniappBase
         if ((float)$latestUser['balance'] < $num) {
           throw new \RuntimeException('balance not enough');
         }
-        Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
-          'balance' => round((float)$latestUser['balance'] - $num, 2),
-          'freeze_balance' => round((float)($latestUser['freeze_balance'] ?? 0) + $num, 2),
-          'update_time' => $now,
-        ]);
         Db::name('miniapp_withdraw')->insert([
           'user_id' => (int)$user['id'],
           'withdraw_no' => $withdrawNo,

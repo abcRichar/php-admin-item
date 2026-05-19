@@ -29,12 +29,16 @@ class Support extends MiniappBase
       }
       $first = $rows ? $rows[0] : null;
       $resolvedLanguage = $first ? (int)($this->normalizeLanguage($first['language'])['value'] ?? $language) : $language;
+      $customerServiceLink = (string)Db::name('miniapp_system_config')
+        ->where('id', 1)
+        ->value('customer_service_link');
 
       $this->logRequest((int)$user['id']);
       $this->apiSuccess(__('miniapp.success'), [
-        'language'      => $resolvedLanguage,
-        'language_name' => $this->getLanguageName($resolvedLanguage),
-        'contact'       => $first ? [
+        'language'              => $resolvedLanguage,
+        'language_name'         => $this->getLanguageName($resolvedLanguage),
+        'customer_service_link' => $customerServiceLink,
+        'contact'               => $first ? [
           'id'            => (int)$first['id'],
           'title'         => (string)$first['title'],
           'content'       => (string)$first['content'],

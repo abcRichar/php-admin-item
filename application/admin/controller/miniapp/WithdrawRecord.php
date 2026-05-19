@@ -111,18 +111,16 @@ class WithdrawRecord extends Backend
             }
 
             $amount = round((float)$latest['amount'], 2);
-            $freezeBalance = round((float)($user['freeze_balance'] ?? 0), 2);
-            if ($freezeBalance < $amount) {
-                throw new \RuntimeException(__('Freeze balance insufficient'));
-            }
-
             $updateUserData = [
-                'freeze_balance' => round($freezeBalance - $amount, 2),
                 'update_time' => $now,
             ];
 
-            if ((int)$targetStatus === 2) {
-                $updateUserData['balance'] = round((float)$user['balance'] + $amount, 2);
+            if ((int)$targetStatus === 1) {
+                $balance = round((float)$user['balance'], 2);
+                if ($balance < $amount) {
+                    throw new \RuntimeException(__('Insufficient balance'));
+                }
+                $updateUserData['balance'] = round($balance - $amount, 2);
             }
 
             Db::name('miniapp_user')->where('id', (int)$user['id'])->update($updateUserData);
@@ -139,38 +137,21 @@ class WithdrawRecord extends Backend
             }
 
             if ((int)$targetStatus === 1) {
-                Db::name('miniapp_finance_log')->insert([
-                    'user_id' => (int)$user['id'],
-                    'uid' => (int)$user['id'],
-                    'sid' => (int)$user['id'],
-                    'oid' => (string)$latest['withdraw_no'],
-                    'num' => -$amount,
-                    'balance' => round((float)$user['balance'], 2),
-                    'addtime' => $now,
-                    'status' => 1,
-                    'type' => 7,
-                    'amount' => -$amount,
-                    'balance_after' => round((float)$user['balance'], 2),
-                    'related_order_no' => (string)$latest['withdraw_no'],
-                    'remark' => 'withdraw approve',
-                    'create_time' => $now,
-                ]);
-            } else {
                 $balanceAfter = round((float)$updateUserData['balance'], 2);
                 Db::name('miniapp_finance_log')->insert([
                     'user_id' => (int)$user['id'],
                     'uid' => (int)$user['id'],
                     'sid' => (int)$user['id'],
                     'oid' => (string)$latest['withdraw_no'],
-                    'num' => $amount,
+                    'num' => -$amount,
                     'balance' => $balanceAfter,
                     'addtime' => $now,
                     'status' => 1,
                     'type' => 7,
-                    'amount' => $amount,
+                    'amount' => -$amount,
                     'balance_after' => $balanceAfter,
                     'related_order_no' => (string)$latest['withdraw_no'],
-                    'remark' => 'withdraw reject refund',
+                    'remark' => 'withdraw approve',
                     'create_time' => $now,
                 ]);
             }
