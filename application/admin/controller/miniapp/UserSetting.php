@@ -14,7 +14,7 @@ class UserSetting extends Backend
 {
     protected $model = null;
     protected $searchFields = 'id,tel,username,nickname,invite_code';
-    protected $noNeedRight = ['selectpage', 'create_subordinate'];
+    protected $noNeedRight = ['selectpage', 'create_subordinate', 'reset_task_count'];
     const FINANCE_TYPE_ADMIN_RECHARGE = 8;
     const AUDIT_TYPE_RECHARGE = 1;
     const AUDIT_TYPE_WITHDRAW = 2;
@@ -129,6 +129,26 @@ class UserSetting extends Backend
         }
 
         $this->success();
+    }
+
+    public function reset_task_count($ids = null)
+    {
+        $row = $this->model->get($ids);
+        if (!$row) {
+            $this->error(__('No Results were found'));
+        }
+        $this->assertMiniappAgentCanAccessUser((int)$row['id']);
+
+        $now = time();
+        $result = $row->allowField(['task_reset_time', 'update_time'])->save([
+            'task_reset_time' => $now,
+            'update_time'     => $now,
+        ]);
+        if ($result === false) {
+            $this->error(__('No rows were updated'));
+        }
+
+        $this->success(__('Task count reset successful'));
     }
 
     public function create_subordinate($ids = null)

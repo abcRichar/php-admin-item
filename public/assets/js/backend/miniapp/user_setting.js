@@ -11,6 +11,7 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
         extend: {
           index_url: "miniapp/user_setting/index",
           edit_url: "miniapp/user_setting/edit",
+          reset_task_count_url: "miniapp/user_setting/reset_task_count",
           table: "miniapp_user",
         },
       });
@@ -91,7 +92,7 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
             },
             {
               field: "task_update_status",
-              title: __("Task_update_status"),
+              title: __("Task_status"),
               searchList: { 1: __("Enabled"), 0: __("Disabled") },
               formatter: function (value) {
                 if (parseInt(value, 10) === 1) {
@@ -155,6 +156,18 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
                   icon: "fa fa-minus",
                   classname: "btn btn-xs btn-warning btn-dialog",
                   url: "miniapp/user_setting/withdraw",
+                },
+                {
+                  name: "reset_task_count",
+                  text: __("Reset_task_count"),
+                  title: __("Reset_task_count"),
+                  icon: "fa fa-refresh",
+                  classname: "btn btn-xs btn-danger btn-ajax",
+                  url: $.fn.bootstrapTable.defaults.extend.reset_task_count_url,
+                  confirm: __("Confirm reset task count"),
+                  success: function () {
+                    table.bootstrapTable("refresh");
+                  },
                 },
                 {
                   name: "create_subordinate_placeholder",

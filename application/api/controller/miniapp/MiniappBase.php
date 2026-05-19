@@ -72,6 +72,22 @@ class MiniappBase extends Api
     }
   }
 
+  protected function getTaskResetTime($user)
+  {
+    return max(0, (int)($user['task_reset_time'] ?? 0));
+  }
+
+  protected function countCompletedTasks($user)
+  {
+    $resetTime = $this->getTaskResetTime($user);
+
+    return (int)Db::name('miniapp_order')
+      ->where('user_id', (int)$user['id'])
+      ->where('status', 2)
+      ->where('complete_time', '>', $resetTime)
+      ->count();
+  }
+
   protected function getParentRebateRate()
   {
     try {

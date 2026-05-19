@@ -30,7 +30,8 @@ return [
     'miniapp.lang_name_cn'            => '中文',
     'miniapp.lang_name_en'            => 'English',
     'miniapp.has_undone_order'        => '该账户存在未完成订单，无法继续抢单！',
-    'miniapp.task_update_disabled'    => '更新任务未开启，请联系后台确认',
+    'miniapp.task_update_disabled'    => '任务开关未开启，请联系后台确认',
+    'miniapp.task_limit_reached'      => '今日任务已完成，请联系后台管理员',
     'miniapp.invite_code_invalid'     => '邀请码无效',
     'miniapp.chat_room_not_found'     => '聊天室不存在',
 ];

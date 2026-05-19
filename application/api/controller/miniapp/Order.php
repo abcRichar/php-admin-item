@@ -263,12 +263,7 @@ class Order extends MiniappBase
     }
 
     $userInfo = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->find();
-    $today_start = $this->getBusinessTodayStartTime();
-    $completedCount = (int)Db::name('miniapp_order')
-      ->where('user_id', (int)$user['id'])
-      ->where('status', 2)
-      ->where('complete_time', '>=', $today_start)
-      ->count();
+    $completedCount = $this->countCompletedTasks($user);
 
     $orderData = $this->buildPreviewOrderData($user, $goods, $dispatchPlan, $todayDan, $language);
     if (!$orderData) {
@@ -409,12 +404,7 @@ class Order extends MiniappBase
       // 查用户资料
       $userInfo = Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->find();
 
-      $today_start = $this->getBusinessTodayStartTime();
-      $completedCount = (int)Db::name('miniapp_order')
-        ->where('user_id', (int)$user['id'])
-        ->where('status', 2)
-        ->where('complete_time', '>=', $today_start)
-        ->count();
+      $completedCount = $this->countCompletedTasks($user);
 
       $yuji = (float)$record['num'] + (float)$record['commission'];
 
@@ -469,7 +459,6 @@ class Order extends MiniappBase
       if ($oid === '') {
         $this->apiError(__('miniapp.param_error'), null, 400);
       }
-      $language = $this->getLanguageValue();
 
       $record = Db::name('miniapp_order')
         ->where('user_id', (int)$user['id'])
@@ -527,18 +516,6 @@ class Order extends MiniappBase
           'create_time' => $now,
         ]);
         $this->grantParentCommission($user, $record, $now);
-        $todayStart = $this->getBusinessTodayStartTime();
-        $completedAfter = (int)Db::name('miniapp_order')
-          ->where('user_id', (int)$user['id'])
-          ->where('status', 2)
-          ->where('complete_time', '>=', $todayStart)
-          ->count();
-        if ($completedAfter >= $this->getDailyOrderNum($language)) {
-          Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
-            'task_update_status' => 0,
-            'update_time' => $now,
-          ]);
-        }
         Db::commit();
       } catch (\Throwable $e) {
         Db::rollback();

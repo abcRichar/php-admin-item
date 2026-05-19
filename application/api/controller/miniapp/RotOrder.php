@@ -97,103 +97,45 @@ class RotOrder extends MiniappBase
     return $orderNum > 0 ? $orderNum : 60;
   }
 
-  protected function assertDailyTaskCanContinue($user, $completedCount, $orderNum)
+  protected function assertTaskLimitNotReached($completedCount, $orderNum)
   {
     if ((int)$completedCount < (int)$orderNum) {
       return;
     }
 
-    $this->closeTaskUpdateStatus((int)$user['id']);
-    $this->apiBusinessError(__('miniapp.task_update_disabled'), [
-      'task_update_status' => 0,
-    ], 400);
+    $this->apiBusinessError(__('miniapp.task_limit_reached'), null, 400);
   }
 
-  protected function findActiveGoodsByLanguage($language)
+  protected function findRandomActiveGoods($excludeGoodsId = 0)
   {
-    return $this->selectActiveGoodsByLanguage($language, 1);
-  }
-
-  protected function findActiveGoodsListByLanguage($language)
-  {
-    $goods = Db::name('miniapp_goods')
-      ->where('status', 1)
-      ->where('language', 'in', $this->getLanguageAliases($language))
-      ->order('sort desc,id asc')
-      ->select();
-
-    if (!$goods && (int)$language !== self::LANGUAGE_CN) {
-      $goods = Db::name('miniapp_goods')
-        ->where('status', 1)
-        ->where('language', 'in', $this->getLanguageAliases(self::LANGUAGE_CN))
-        ->order('sort desc,id asc')
-        ->select();
+    $excludeGoodsId = (int)$excludeGoodsId;
+    $query = Db::name('miniapp_goods')->where('status', 1);
+    if ($excludeGoodsId > 0) {
+      $query->where('id', '<>', $excludeGoodsId);
     }
 
-    return $goods ?: [];
-  }
-
-  protected function selectActiveGoodsByLanguage($language, $todayDan)
-  {
-    $goodsList = $this->findActiveGoodsListByLanguage($language);
-    if (!$goodsList) {
+    $count = (int)$query->count();
+    if ($count <= 0 && $excludeGoodsId > 0) {
+      return $this->findRandomActiveGoods(0);
+    }
+    if ($count <= 0) {
       return null;
     }
 
-    $todayDan = max(1, (int)$todayDan);
-    $index = ($todayDan - 1) % count($goodsList);
-    return $goodsList[$index] ?? $goodsList[0];
+    $goodsQuery = Db::name('miniapp_goods')->where('status', 1);
+    if ($excludeGoodsId > 0) {
+      $goodsQuery->where('id', '<>', $excludeGoodsId);
+    }
+    return $goodsQuery->orderRaw('RAND()')->find();
   }
 
-  protected function orderLanguageMatches($order, $language)
+  protected function getLastCompletedGoodsId($user)
   {
-    $orderLanguage = strtolower(trim((string)($order['language'] ?? '')));
-    if ($orderLanguage === '') {
-      return false;
-    }
-
-    return in_array($orderLanguage, $this->getLanguageAliases($language), true);
-  }
-
-  protected function refreshPreviewOrderLanguage($user, $undoneOrder, $goods, $language)
-  {
-    if (!$undoneOrder || !$goods || (int)($undoneOrder['status'] ?? -1) !== 0) {
-      return $undoneOrder;
-    }
-
-    if ($this->orderLanguageMatches($undoneOrder, $language) && (int)($undoneOrder['goods_id'] ?? 0) === (int)$goods['id']) {
-      return $undoneOrder;
-    }
-
-    $todayDan = (int)($undoneOrder['today_dan'] ?? 0);
-    if ($todayDan <= 0) {
-      $todayDan = 1;
-    }
-    $dispatchPlan = $this->buildDispatchOrderPlan($user, $goods, $todayDan, $language);
-    if (!$dispatchPlan) {
-      return $undoneOrder;
-    }
-
-    $now = time();
-    Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->update([
-      'goods_id'            => (int)$goods['id'],
-      'goods_count'         => (int)$dispatchPlan['goods_count'],
-      'goods_name'          => (string)$goods['title'],
-      'shop_name'           => (string)$goods['title'],
-      'goods_price'         => (float)$dispatchPlan['goods_price'],
-      'goods_pic'           => (string)$goods['image'],
-      'goods_image'         => (string)$goods['image'],
-      'amount'              => (float)$dispatchPlan['amount'],
-      'num'                 => (float)$dispatchPlan['amount'],
-      'user_balance'        => (float)$user['balance'],
-      'user_freeze_balance' => (float)($user['freeze_balance'] ?? 0),
-      'commission'          => (float)$dispatchPlan['commission'],
-      'parent_commission'   => $this->calculateParentCommission((float)$dispatchPlan['commission']),
-      'language'            => (string)$language,
-      'update_time'         => $now,
-    ]);
-
-    return Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->find() ?: $undoneOrder;
+    return (int)Db::name('miniapp_order')
+      ->where('user_id', (int)$user['id'])
+      ->where('status', 2)
+      ->order('complete_time desc,id desc')
+      ->value('goods_id');
   }
 
   protected function resolveRuleIndex($dispatchOrderValue, $todayDan)
@@ -473,13 +415,6 @@ class RotOrder extends MiniappBase
     }
   }
 
-  protected function closeTaskUpdateStatus($userId)
-  {
-    Db::name('miniapp_user')->where('id', (int)$userId)->update([
-      'task_update_status' => 0,
-      'update_time'        => time(),
-    ]);
-  }
   /**
    * 抢单页数据 - 对齐线上字段
    * 线上返回: {lock_deal, day_deal, completed_count, order_num, level_bili,
@@ -493,12 +428,8 @@ class RotOrder extends MiniappBase
 
       // 统计数据
       $today_start = $this->getBusinessTodayStartTime();
-      $completedCount = (int)Db::name('miniapp_order')
-        ->where('user_id', (int)$user['id'])->where('status', 2)
-        ->where('complete_time', '>=', $today_start)->count();
-      $todayCompleted = (int)Db::name('miniapp_order')
-        ->where('user_id', (int)$user['id'])->where('status', 2)
-        ->where('complete_time', '>=', $today_start)->count();
+      $completedCount = $this->countCompletedTasks($user);
+      $todayCompleted = $completedCount;
       $incompleteCount = (int)Db::name('miniapp_order')
         ->where('user_id', (int)$user['id'])->where('status', 'in', [0, 1])->count();
 
@@ -533,11 +464,15 @@ class RotOrder extends MiniappBase
       };
       $levelBili = (float)($getConf('level_bili') ?: 0.006);
       $orderNum  = $this->getDailyOrderNum($language);
+      $taskLimitReached = $completedCount >= $orderNum;
+      $taskEnabled = (int)($user['task_update_status'] ?? 1) === 1;
       $descInfo  = (string)($getConf('desc_info') ?: '');
       $dealZhujiTime = (string)($getConf('deal_zhuji_time') ?: '1');
       $dealShopTime  = (string)($getConf('deal_shop_time') ?: '2');
       $nextTodayDan = $todayCompleted + $incompleteCount + 1;
-      $currentGoods = $this->selectActiveGoodsByLanguage($language, $nextTodayDan);
+      $lastCompletedGoodsId = $this->getLastCompletedGoodsId($user);
+      $canReturnGoods = $taskEnabled && !$taskLimitReached;
+      $currentGoods = $canReturnGoods ? $this->findRandomActiveGoods($lastCompletedGoodsId) : null;
       $dispatchPlan = $currentGoods ? $this->buildDispatchOrderPlan($user, $currentGoods, $nextTodayDan, $language) : null;
 
       // uinfo
@@ -560,17 +495,11 @@ class RotOrder extends MiniappBase
         ->order('id desc')
         ->find();
 
-      if ($undoneOrder && (int)$undoneOrder['status'] === 0) {
-        $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
-        $this->assertTaskUpdateEnabled($user);
-        $undoneTodayDan = (int)($undoneOrder['today_dan'] ?? 0);
-        $undoneGoods = $this->selectActiveGoodsByLanguage($language, $undoneTodayDan > 0 ? $undoneTodayDan : $nextTodayDan);
-        $undoneOrder = $this->refreshPreviewOrderLanguage($user, $undoneOrder, $undoneGoods, $language);
+      if ($undoneOrder && !$canReturnGoods) {
+        $undoneOrder = null;
       }
 
-      if (!$undoneOrder) {
-        $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
-        $this->assertTaskUpdateEnabled($user);
+      if (!$undoneOrder && $canReturnGoods) {
         $undoneOrder = $this->buildOrderUndonePreview($user, $currentGoods, $dispatchPlan, $nextTodayDan);
         if ($undoneOrder) {
           $incompleteCount++;
@@ -578,9 +507,16 @@ class RotOrder extends MiniappBase
       }
 
       $orderUndone = $this->formatUndoneOrder($undoneOrder);
+      if ($taskLimitReached) {
+        $message = __('miniapp.task_limit_reached');
+      } elseif (!$taskEnabled) {
+        $message = __('miniapp.task_update_disabled');
+      } else {
+        $message = __('miniapp.success');
+      }
 
       $this->logRequest((int)$user['id']);
-      $this->apiSuccess(__('miniapp.success'), [
+      $this->apiSuccess($message, [
         'lock_deal'              => number_format($lockDeal, 2, '.', ''),
         'day_deal'               => (float)$dayDeal,
         'completed_count'        => $completedCount,
@@ -609,12 +545,7 @@ class RotOrder extends MiniappBase
     $this->execute(function () {
       $user = $this->getMiniappUser();
       $language = $this->getLanguageValue();
-      $todayStart = $this->getBusinessTodayStartTime();
-      $completedCount = (int)Db::name('miniapp_order')
-        ->where('user_id', (int)$user['id'])
-        ->where('status', 2)
-        ->where('complete_time', '>=', $todayStart)
-        ->count();
+      $completedCount = $this->countCompletedTasks($user);
       $orderNum = $this->getDailyOrderNum($language);
 
       // 检查未完成订单
@@ -627,7 +558,7 @@ class RotOrder extends MiniappBase
         if ((int)$undone['status'] === 1) {
           $this->apiError(__('miniapp.has_undone_order'), null, 400);
         }
-        $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
+        $this->assertTaskLimitNotReached($completedCount, $orderNum);
         $this->assertTaskUpdateEnabled($user);
 
         $requiredAmount = round((float)($undone['num'] ?? $undone['amount'] ?? 0), 2);
@@ -679,16 +610,18 @@ class RotOrder extends MiniappBase
         ]);
       }
 
-      $todayDan  = (int)Db::name('miniapp_order')
+      $incompleteCount = (int)Db::name('miniapp_order')
         ->where('user_id', (int)$user['id'])
-        ->where('addtime', '>=', $todayStart)
-        ->count() + 1;
-      $goods = $this->selectActiveGoodsByLanguage($language, $todayDan);
+        ->where('status', 'in', [0, 1])
+        ->count();
+      $todayDan = $completedCount + $incompleteCount + 1;
+      $this->assertTaskLimitNotReached($completedCount, $orderNum);
+      $this->assertTaskUpdateEnabled($user);
+
+      $goods = $this->findRandomActiveGoods($this->getLastCompletedGoodsId($user));
       if (!$goods) {
         $this->apiError(__('miniapp.goods_not_found'), null, 404);
       }
-      $this->assertDailyTaskCanContinue($user, $completedCount, $orderNum);
-      $this->assertTaskUpdateEnabled($user);
 
       $now = time();
       $orderNo   = 'UB' . date('ymdHis') . mt_rand(1000, 9999);

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Rot order language regression checks.
+ * Rot order goods selection regression checks.
  */
 
 $root = dirname(__DIR__);
@@ -9,6 +9,15 @@ $root = dirname(__DIR__);
 function assert_file_contains($content, $needle, $message)
 {
     if (strpos($content, $needle) === false) {
+        fwrite(STDERR, "[FAIL] {$message}\n");
+        exit(1);
+    }
+    echo "[OK] {$message}\n";
+}
+
+function assert_file_not_contains($content, $needle, $message)
+{
+    if (strpos($content, $needle) !== false) {
         fwrite(STDERR, "[FAIL] {$message}\n");
         exit(1);
     }
@@ -34,32 +43,44 @@ assert_file_contains(
 
 assert_file_contains(
     $rotOrder,
-    'protected function findActiveGoodsByLanguage($language)',
-    'Rot order queries goods through language-aware helper'
+    'protected function findRandomActiveGoods($excludeGoodsId = 0)',
+    'Rot order uses random active goods helper'
 );
 
 assert_file_contains(
     $rotOrder,
-    "->where('language', 'in', \$this->getLanguageAliases(\$language))",
-    'Rot order goods/config queries support legacy language values'
+    'protected function getLastCompletedGoodsId($user)',
+    'New orders can avoid repeating the last completed goods'
+);
+
+assert_file_not_contains(
+    $rotOrder,
+    'refreshPreviewOrderGoods',
+    'Uncompleted preview orders keep the original goods'
 );
 
 assert_file_contains(
     $rotOrder,
-    'protected function refreshPreviewOrderLanguage($user, $undoneOrder, $goods, $language)',
-    'Rot order can refresh unsubmitted preview order language'
+    "->orderRaw('RAND()')->find()",
+    'Rot order randomly returns one active goods item'
+);
+
+assert_file_not_contains(
+    $rotOrder,
+    'selectActiveGoodsByLanguage',
+    'Rot order no longer polls goods by list order'
+);
+
+assert_file_not_contains(
+    $rotOrder,
+    'findActiveGoodsByLanguage',
+    'Rot order no longer filters goods by user language'
 );
 
 assert_file_contains(
     $rotOrder,
-    '$currentGoods = $this->findActiveGoodsByLanguage(self::LANGUAGE_EN);',
-    'Order info always returns English goods'
-);
-
-assert_file_contains(
-    $rotOrder,
-    '$undoneOrder = $this->refreshPreviewOrderLanguage($user, $undoneOrder, $currentGoods, $language);',
-    'Order info refreshes status 0 preview orders after language switch'
+    '$currentGoods = $canReturnGoods ? $this->findRandomActiveGoods($lastCompletedGoodsId) : null;',
+    'Order info returns no goods after task limit is reached'
 );
 
 assert_file_contains(

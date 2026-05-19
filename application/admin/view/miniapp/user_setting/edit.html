@@ -49,12 +49,21 @@
     </div>
   </div>
   <div class="form-group">
-    <label class="control-label col-xs-12 col-sm-2">{:__('Task_update_status')}:</label>
+    <label class="control-label col-xs-12 col-sm-2">{:__('Task_status')}:</label>
     <div class="col-xs-12 col-sm-8">
       <label for="c-task_update_status">
         <input id="c-task_update_status" name="row[task_update_status]" type="checkbox" value="1" {if condition="!isset($row.task_update_status) || (int)$row.task_update_status === 1"}checked{/if} />
-        {:__('New task can be generated once when enabled')}
+        {:__('Task allowed when enabled')}
       </label>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="control-label col-xs-12 col-sm-2">{:__('Reset_task_count')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <a href="{:url('miniapp/user_setting/reset_task_count', ['ids' => $row.id])}" class="btn btn-warning btn-ajax" data-confirm="{:__('Confirm reset task count')}" data-success="Toastr.success('{:__('Task count reset successful')}');">
+        <i class="fa fa-refresh"></i> {:__('Reset_task_count')}
+      </a>
+      <span class="help-block">{:__('Reset task count help')}</span>
     </div>
   </div>
   <div class="form-group">
