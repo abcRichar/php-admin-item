@@ -278,7 +278,7 @@ class MiniappBase extends Api
       }
     }
 
-    return $this->normalizeLanguage(self::LANGUAGE_CN);
+    return $this->normalizeLanguage(self::LANGUAGE_EN);
   }
 
   protected function findHistoryLanguage()
