@@ -145,12 +145,12 @@ class RechargeRecord extends Backend
 
     protected function canAuditBalanceAudit($audit)
     {
-        $submitAdminId = (int)($audit['admin_id'] ?? 0);
-        if ($submitAdminId > 0 && $submitAdminId === $this->getCurrentAdminId()) {
-            return false;
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return true;
         }
 
-        if ($this->auth && $this->auth->isSuperAdmin()) {
+        $submitAdminId = (int)($audit['admin_id'] ?? 0);
+        if ($submitAdminId > 0 && $submitAdminId === $this->getCurrentAdminId()) {
             return true;
         }
 
