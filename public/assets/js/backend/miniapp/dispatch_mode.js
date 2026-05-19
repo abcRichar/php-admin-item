@@ -27,6 +27,7 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                     {field: 'commission_rate', title: __('Commission_rate'), operate: false},
                     {field: 'fixed_commission', title: __('Fixed_commission'), operate: false},
                     {field: 'dispatch_amount', title: __('Dispatch_amount'), operate: false},
+                    {field: 'difference_amount', title: __('Difference_amount'), operate: false},
                     {field: 'sort', title: __('Sort'), operate: 'BETWEEN', sortable: true},
                     {field: 'status', title: __('Status'), searchList: Config.statusList, formatter: Table.api.formatter.normal},
                     {field: 'update_time', title: __('Update_time'), operate: 'RANGE', addclass: 'datetimerange', formatter: Table.api.formatter.datetime, sortable: true},

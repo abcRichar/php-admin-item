@@ -102,7 +102,7 @@ class Order extends MiniappBase
     return null;
   }
 
-  protected function buildProfileByRule($dispatchOrderValue, $templateName, $commissionRateValue, $fixedCommissionValue, $dispatchAmountValue, $todayDan)
+  protected function buildProfileByRule($dispatchOrderValue, $templateName, $commissionRateValue, $fixedCommissionValue, $dispatchAmountValue, $differenceAmountValue, $todayDan)
   {
     $rule = $this->resolveRuleIndex($dispatchOrderValue, $todayDan);
     if (!$rule) {
@@ -118,6 +118,7 @@ class Order extends MiniappBase
       'commission_rate' => $this->getSequenceValueByIndex($commissionRateValue, $index, 'float'),
       'fixed_commission' => $this->getSequenceValueByIndex($fixedCommissionValue, $index, 'float'),
       'dispatch_amount' => $this->getSequenceValueByIndex($dispatchAmountValue, $index, 'float'),
+      'difference_amount' => $this->getSequenceValueByIndex($differenceAmountValue, $index, 'float'),
     ];
   }
 
@@ -135,9 +136,10 @@ class Order extends MiniappBase
       'commission_rate' => null,
       'fixed_commission' => null,
       'dispatch_amount' => null,
+      'difference_amount' => null,
     ];
 
-    foreach (['template_name', 'commission_rate', 'fixed_commission', 'dispatch_amount'] as $field) {
+    foreach (['template_name', 'commission_rate', 'fixed_commission', 'dispatch_amount', 'difference_amount'] as $field) {
       $userValue = $userProfile[$field] ?? null;
       if ($field === 'template_name') {
         $profile[$field] = $userValue !== null && $userValue !== '' ? $userValue : (string)($defaultProfile[$field] ?? '');
@@ -157,6 +159,7 @@ class Order extends MiniappBase
       (string)$this->getMiniappConfigValue('commission_rate', $language, ''),
       (string)$this->getMiniappConfigValue('fixed_commission', $language, ''),
       (string)$this->getMiniappConfigValue('dispatch_amount', $language, ''),
+      (string)$this->getMiniappConfigValue('difference_amount', $language, ''),
       $todayDan
     );
 
@@ -166,6 +169,7 @@ class Order extends MiniappBase
       (string)($user['commission_rate'] ?? ''),
       (string)($user['fixed_commission'] ?? ''),
       (string)($user['dispatch_amount'] ?? ''),
+      (string)($user['difference_amount'] ?? ''),
       $todayDan
     );
 
@@ -185,10 +189,8 @@ class Order extends MiniappBase
     if ($hasMatchedDispatchRule && isset($profile['dispatch_amount']) && (float)$profile['dispatch_amount'] > 0) {
       $configAmount = round((float)$profile['dispatch_amount'], 2);
       $configGoodsCount = $goodsPrice > 0 ? (int)floor($configAmount / $goodsPrice) : 0;
-      if ($configGoodsCount > 0) {
-        $goodsCount = $configGoodsCount;
-        $amount = round($goodsPrice * $goodsCount, 2);
-      }
+      $goodsCount = $configGoodsCount > 0 ? $configGoodsCount : 1;
+      $amount = $configAmount;
     }
 
     $defaultRate = (float)$this->getMiniappConfigValue('level_bili', $language, '0.006');
@@ -201,6 +203,9 @@ class Order extends MiniappBase
       'goods_price' => $goodsPrice,
       'amount' => $amount,
       'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile),
+      'difference_amount' => $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
+        ? round((float)$profile['difference_amount'], 2)
+        : 0.00,
     ];
   }
 
@@ -226,6 +231,7 @@ class Order extends MiniappBase
       'goods_pic' => (string)($goods['image'] ?? ''),
       'group_rule_num' => 0,
       'group_id' => 0,
+      'difference_amount' => number_format((float)($dispatchPlan['difference_amount'] ?? 0), 2, '.', ''),
       'rands' => null,
       'group_count' => null,
       'duorw' => 0,
@@ -476,12 +482,60 @@ class Order extends MiniappBase
         $this->apiError(__('miniapp.order_already_completed'), null, 400);
       }
 
-      $now = time();
-      $commission = (float)$record['commission'];
-
       Db::startTrans();
       try {
-        Db::name('miniapp_order')->where('id', (int)$record['id'])->update([
+        $latestOrder = Db::name('miniapp_order')
+          ->where('id', (int)$record['id'])
+          ->lock(true)
+          ->find();
+        if (!$latestOrder) {
+          throw new \RuntimeException(__('miniapp.order_not_found'));
+        }
+        if ((int)$latestOrder['status'] === 2) {
+          throw new \RuntimeException(__('miniapp.order_already_completed'));
+        }
+
+        $latestUser = Db::name('miniapp_user')
+          ->where('id', (int)$user['id'])
+          ->where('status', 1)
+          ->lock(true)
+          ->find();
+        if (!$latestUser) {
+          throw new \RuntimeException(__('miniapp.login_required'));
+        }
+
+        $requiredAmount = round((float)($latestOrder['num'] ?? $latestOrder['amount'] ?? 0), 2);
+        $balance = round((float)$latestUser['balance'], 2);
+        $differenceAmount = round((float)($latestOrder['difference_amount'] ?? 0), 2);
+        if ($differenceAmount > 0) {
+          $baseBalance = round((float)($latestOrder['user_balance'] ?? 0), 2);
+          $differenceRequiredBalance = round($baseBalance + $differenceAmount, 2);
+          if ($balance < $differenceRequiredBalance) {
+            Db::rollback();
+            $this->apiError(__('miniapp.balance_not_enough'), [
+              'balance' => (string)$latestUser['balance'],
+              'difference_amount' => (string)$differenceAmount,
+              'difference_required_balance' => (string)$differenceRequiredBalance,
+              'lack_amount' => (string)round($differenceRequiredBalance - $balance, 2),
+              'order_no' => (string)$latestOrder['order_no'],
+            ], 400);
+          }
+        }
+
+        $lackAmount = $requiredAmount > $balance ? round($requiredAmount - $balance, 2) : 0.00;
+        if ($lackAmount > 0) {
+          Db::rollback();
+          $this->apiError(__('miniapp.balance_not_enough'), [
+            'balance' => (string)$latestUser['balance'],
+            'required_amount' => (string)$requiredAmount,
+            'lack_amount' => (string)$lackAmount,
+            'order_no' => (string)$latestOrder['order_no'],
+          ], 400);
+        }
+
+        $now = time();
+        $commission = (float)$latestOrder['commission'];
+        Db::name('miniapp_order')->where('id', (int)$latestOrder['id'])->update([
           'status' => 2,
           'c_status' => 1,
           'complete_time' => $now,
@@ -489,34 +543,36 @@ class Order extends MiniappBase
         ]);
         Db::name('miniapp_order_action_log')->insert([
           'user_id' => (int)$user['id'],
-          'order_id' => (int)$record['id'],
-          'order_no' =>$oid,
+          'order_id' => (int)$latestOrder['id'],
+          'order_no' => (string)$latestOrder['order_no'],
           'action' => 'do_order',
-          'amount' => (float)$record['amount'],
+          'amount' => (float)$latestOrder['amount'],
           'status' => 1,
           'create_time' => $now,
         ]);
         // 佣金入账
         Db::name('miniapp_user')->where('id', (int)$user['id'])->setInc('balance', $commission);
-        $newBalance = (float)$user['balance'] + $commission;
+        $newBalance = (float)$latestUser['balance'] + $commission;
         Db::name('miniapp_finance_log')->insert([
           'user_id' => (int)$user['id'],
           'uid' => (int)$user['id'],
           'sid' => (int)$user['id'],
-          'oid' =>$oid,
+          'oid' => (string)$latestOrder['order_no'],
           'type' => 3,
           'amount' => $commission,
           'num' => (string)$commission,
           'balance' => $newBalance,
           'balance_after' => $newBalance,
-          'related_order_no' =>$oid,
+          'related_order_no' => (string)$latestOrder['order_no'],
           'addtime' => $now,
           'remark' => 'order complete commission',
           'status' => 1,
           'create_time' => $now,
         ]);
-        $this->grantParentCommission($user, $record, $now);
+        $this->grantParentCommission($latestUser, $latestOrder, $now);
         Db::commit();
+      } catch (\think\exception\HttpResponseException $e) {
+        throw $e;
       } catch (\Throwable $e) {
         Db::rollback();
         $this->apiError(__('miniapp.operation_failed'), null, 500);

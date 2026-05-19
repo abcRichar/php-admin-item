@@ -84,6 +84,7 @@ class DispatchMode extends Backend
             'commission_rate'  => $this->normalizeSequenceValue($params['commission_rate'] ?? '', 'number'),
             'fixed_commission' => $this->normalizeSequenceValue($params['fixed_commission'] ?? '', 'number'),
             'dispatch_amount'  => $this->normalizeSequenceValue($params['dispatch_amount'] ?? '', 'number'),
+            'difference_amount' => $this->normalizeSequenceValue($params['difference_amount'] ?? '', 'number'),
             'status'           => isset($params['status']) ? (int)$params['status'] : 1,
             'sort'             => isset($params['sort']) ? (int)$params['sort'] : 0,
         ];

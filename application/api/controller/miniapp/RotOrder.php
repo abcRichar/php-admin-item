@@ -158,7 +158,7 @@ class RotOrder extends MiniappBase
     return null;
   }
 
-  protected function buildProfileByRule($dispatchOrderValue, $templateName, $commissionRateValue, $fixedCommissionValue, $dispatchAmountValue, $todayDan)
+  protected function buildProfileByRule($dispatchOrderValue, $templateName, $commissionRateValue, $fixedCommissionValue, $dispatchAmountValue, $differenceAmountValue, $todayDan)
   {
     $rule = $this->resolveRuleIndex($dispatchOrderValue, $todayDan);
     if (!$rule) {
@@ -174,6 +174,7 @@ class RotOrder extends MiniappBase
       'commission_rate' => $this->getSequenceValueByIndex($commissionRateValue, $index, 'float'),
       'fixed_commission' => $this->getSequenceValueByIndex($fixedCommissionValue, $index, 'float'),
       'dispatch_amount' => $this->getSequenceValueByIndex($dispatchAmountValue, $index, 'float'),
+      'difference_amount' => $this->getSequenceValueByIndex($differenceAmountValue, $index, 'float'),
     ];
   }
 
@@ -191,9 +192,10 @@ class RotOrder extends MiniappBase
       'commission_rate' => null,
       'fixed_commission' => null,
       'dispatch_amount' => null,
+      'difference_amount' => null,
     ];
 
-    foreach (['template_name', 'commission_rate', 'fixed_commission', 'dispatch_amount'] as $field) {
+    foreach (['template_name', 'commission_rate', 'fixed_commission', 'dispatch_amount', 'difference_amount'] as $field) {
       $userValue = $userProfile[$field] ?? null;
       if ($field === 'template_name') {
         $profile[$field] = $userValue !== null && $userValue !== '' ? $userValue : (string)($defaultProfile[$field] ?? '');
@@ -213,6 +215,7 @@ class RotOrder extends MiniappBase
       (string)$this->getMiniappConfigValue('commission_rate', $language, ''),
       (string)$this->getMiniappConfigValue('fixed_commission', $language, ''),
       (string)$this->getMiniappConfigValue('dispatch_amount', $language, ''),
+      (string)$this->getMiniappConfigValue('difference_amount', $language, ''),
       $todayDan
     );
 
@@ -222,6 +225,7 @@ class RotOrder extends MiniappBase
       (string)($user['commission_rate'] ?? ''),
       (string)($user['fixed_commission'] ?? ''),
       (string)($user['dispatch_amount'] ?? ''),
+      (string)($user['difference_amount'] ?? ''),
       $todayDan
     );
 
@@ -241,10 +245,8 @@ class RotOrder extends MiniappBase
     if ($hasMatchedDispatchRule && isset($profile['dispatch_amount']) && (float)$profile['dispatch_amount'] > 0) {
       $configAmount = round((float)$profile['dispatch_amount'], 2);
       $configGoodsCount = $goodsPrice > 0 ? (int)floor($configAmount / $goodsPrice) : 0;
-      if ($configGoodsCount > 0) {
-        $goodsCount = $configGoodsCount;
-        $amount = round($goodsPrice * $goodsCount, 2);
-      }
+      $goodsCount = $configGoodsCount > 0 ? $configGoodsCount : 1;
+      $amount = $configAmount;
     }
 
     $defaultRate = (float)$this->getMiniappConfigValue('level_bili', $language, '0.006');
@@ -254,6 +256,9 @@ class RotOrder extends MiniappBase
 
     $lackAmount = $amount > $balance ? round($amount - $balance, 2) : 0.00;
     $maxOrderCount = $amount > 0 ? (int)floor($balance / $amount) : 0;
+    $differenceAmount = $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
+      ? round((float)$profile['difference_amount'], 2)
+      : 0.00;
 
     return [
       'profile' => $profile,
@@ -262,6 +267,7 @@ class RotOrder extends MiniappBase
       'goods_price' => $goodsPrice,
       'amount' => $amount,
       'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile),
+      'difference_amount' => $differenceAmount,
       'lack_amount' => $lackAmount,
       'can_submit' => $lackAmount <= 0,
       'max_order_count' => $maxOrderCount,
@@ -270,13 +276,38 @@ class RotOrder extends MiniappBase
     ];
   }
 
-  protected function formatUndoneOrder($undoneOrder)
+  protected function calculateOrderLackAmount($order, $user)
+  {
+    if (!$order || !$user) {
+      return 0.00;
+    }
+
+    $balance = round((float)($user['balance'] ?? 0), 2);
+    $differenceAmount = round((float)($order['difference_amount'] ?? 0), 2);
+    if ($differenceAmount > 0) {
+      $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
+      $differenceRequiredBalance = round($baseBalance + $differenceAmount, 2);
+      if ($balance < $differenceRequiredBalance) {
+        return round($differenceRequiredBalance - $balance, 2);
+      }
+    }
+
+    $requiredAmount = round((float)($order['num'] ?? $order['amount'] ?? 0), 2);
+    if ($requiredAmount > $balance) {
+      return round($requiredAmount - $balance, 2);
+    }
+
+    return 0.00;
+  }
+
+  protected function formatUndoneOrder($undoneOrder, $user = null)
   {
     if (!$undoneOrder) {
       return new \stdClass();
     }
 
     $now = time();
+    $lackAmount = $this->calculateOrderLackAmount($undoneOrder, $user);
     return [
       'oid'                    => (int)$undoneOrder['id'],
       'id'                     => (string)$undoneOrder['order_no'],
@@ -304,6 +335,8 @@ class RotOrder extends MiniappBase
       'today_dan'              => (int)($undoneOrder['today_dan'] ?? 0),
       'qkon'                   => (int)($undoneOrder['qkon'] ?? 1),
       'group_completedornot'   => (int)($undoneOrder['group_completedornot'] ?? 1),
+      'difference_amount'      => number_format((float)($undoneOrder['difference_amount'] ?? 0), 2, '.', ''),
+      'lack_amount'            => number_format($lackAmount, 2, '.', ''),
       'rands'                  => $undoneOrder['rands'] ?? null,
       'group_count'            => $undoneOrder['group_count'] ?? null,
       'duorw'                  => (int)($undoneOrder['duorw'] ?? 0),
@@ -369,6 +402,7 @@ class RotOrder extends MiniappBase
         'num' => (float)$dispatchPlan['amount'],
         'user_balance' => (float)$user['balance'],
         'user_freeze_balance' => (float)($user['freeze_balance'] ?? 0),
+        'difference_amount' => (float)($dispatchPlan['difference_amount'] ?? 0),
         'addtime' => $now,
         'term_time' => null,
         'endtime' => 0,
@@ -506,7 +540,8 @@ class RotOrder extends MiniappBase
         }
       }
 
-      $orderUndone = $this->formatUndoneOrder($undoneOrder);
+      $orderUndone = $this->formatUndoneOrder($undoneOrder, $user);
+      $lackAmount = $undoneOrder ? $this->calculateOrderLackAmount($undoneOrder, $user) : 0.00;
       if ($taskLimitReached) {
         $message = __('miniapp.task_limit_reached');
       } elseif (!$taskEnabled) {
@@ -531,6 +566,7 @@ class RotOrder extends MiniappBase
         'commission_today'       => (float)$commissionToday,
         'commission_all'         => (float)$commissionAll,
         'commission_subordinate' => (float)$commissionSubordinate,
+        'lack_amount'            => number_format($lackAmount, 2, '.', ''),
         'order_undone'           => $orderUndone,
       ]);
     });
@@ -582,10 +618,10 @@ class RotOrder extends MiniappBase
             'status' => 1,
             'is_pay' => 1,
             'pay_time' => $now,
-            'c_status' => 1,
-            'endtime' => $now + 3600,
-            'user_balance' => (float)$user['balance'],
-            'user_freeze_balance' => (float)($user['freeze_balance'] ?? 0),
+          'c_status' => 1,
+          'endtime' => $now + 3600,
+          'user_balance' => (float)($undone['user_balance'] ?? $user['balance']),
+          'user_freeze_balance' => (float)($user['freeze_balance'] ?? 0),
             'update_time' => $now,
           ]);
           Db::name('miniapp_order_action_log')->insert([
@@ -662,6 +698,7 @@ class RotOrder extends MiniappBase
           'num' => $amount,
           'user_balance' => (float)$user['balance'],
           'user_freeze_balance' => (float)($user['freeze_balance'] ?? 0),
+          'difference_amount' => (float)($dispatchPlan['difference_amount'] ?? 0),
           'addtime' => $now,
           'endtime' => $now + 3600,
           'status' => 1,
