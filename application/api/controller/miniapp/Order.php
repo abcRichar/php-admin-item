@@ -163,6 +163,25 @@ class Order extends MiniappBase
       $todayDan
     );
 
+    $dispatchModeProfile = null;
+    if (!empty($user['dispatch_mode_id'])) {
+      $dispatchMode = Db::name('miniapp_dispatch_mode')
+        ->where('id', (int)$user['dispatch_mode_id'])
+        ->where('status', 1)
+        ->find();
+      if ($dispatchMode) {
+        $dispatchModeProfile = $this->buildProfileByRule(
+          (string)($dispatchMode['dispatch_order'] ?? ''),
+          (string)($dispatchMode['template_name'] ?? ''),
+          (string)($dispatchMode['commission_rate'] ?? ''),
+          (string)($dispatchMode['fixed_commission'] ?? ''),
+          (string)($dispatchMode['dispatch_amount'] ?? ''),
+          (string)($dispatchMode['difference_amount'] ?? ''),
+          $todayDan
+        );
+      }
+    }
+
     $userProfile = $this->buildProfileByRule(
       (string)($user['dispatch_order'] ?? ''),
       (string)($user['template_name'] ?? ''),
@@ -172,6 +191,11 @@ class Order extends MiniappBase
       (string)($user['difference_amount'] ?? ''),
       $todayDan
     );
+
+    if ($dispatchModeProfile) {
+      $dispatchModeProfile['from_rule'] = 'user';
+      return $this->mergeDispatchProfile($dispatchModeProfile, $defaultProfile);
+    }
 
     return $this->mergeDispatchProfile($userProfile, $defaultProfile);
   }
@@ -186,11 +210,20 @@ class Order extends MiniappBase
 
     $profile = $this->resolveDispatchProfile($user, $todayDan, $language);
     $hasMatchedDispatchRule = $profile && isset($profile['dispatch_order']) && $profile['dispatch_order'] !== null;
+    $differenceAmount = $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
+      ? round((float)$profile['difference_amount'], 2)
+      : 0.00;
     if ($hasMatchedDispatchRule && isset($profile['dispatch_amount']) && (float)$profile['dispatch_amount'] > 0) {
       $configAmount = round((float)$profile['dispatch_amount'], 2);
-      $configGoodsCount = $goodsPrice > 0 ? (int)floor($configAmount / $goodsPrice) : 0;
+      $configGoodsAmount = round($configAmount + $differenceAmount, 2);
+      $configGoodsCount = $goodsPrice > 0 ? (int)floor($configGoodsAmount / $goodsPrice) : 0;
       $goodsCount = $configGoodsCount > 0 ? $configGoodsCount : 1;
       $amount = $configAmount;
+    } elseif ($hasMatchedDispatchRule && $differenceAmount > 0) {
+      $differenceGoodsAmount = round($balance + $differenceAmount, 2);
+      $differenceGoodsCount = $goodsPrice > 0 ? (int)floor($differenceGoodsAmount / $goodsPrice) : 0;
+      $goodsCount = $differenceGoodsCount > 0 ? $differenceGoodsCount : 1;
+      $amount = round($goodsPrice * $goodsCount, 2);
     }
 
     $defaultRate = (float)$this->getMiniappConfigValue('level_bili', $language, '0.006');
@@ -203,9 +236,7 @@ class Order extends MiniappBase
       'goods_price' => $goodsPrice,
       'amount' => $amount,
       'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile),
-      'difference_amount' => $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
-        ? round((float)$profile['difference_amount'], 2)
-        : 0.00,
+      'difference_amount' => $differenceAmount,
     ];
   }
 

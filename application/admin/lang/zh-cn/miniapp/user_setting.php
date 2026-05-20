@@ -9,6 +9,7 @@ return [
     'Invite_code' => '邀请码',
     'Balance' => '余额',
     'Dispatch_mode' => '派单模式',
+    'Difference_amount' => '差额',
     'Password' => '账号密码',
     'Cash_password' => '资金密码',
     'Withdraw_address' => '提现地址',

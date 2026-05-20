@@ -62,12 +62,14 @@ class UserSetting extends Backend
             $inviteAdminAccountMap = $this->getInviteAdminAccountMap($userIds);
             $dispatchModeMap = $this->getDispatchModeNameMap($modeIds);
             $withdrawAddressMap = $this->getWithdrawAddressMap($userIds);
+            $currentDifferenceAmountMap = $this->getCurrentDifferenceAmountMap($items);
 
             foreach ($items as $row) {
                 $parentAccount = $parentAccountMap[(int)($row['parent_id'] ?? 0)] ?? ($inviteAdminAccountMap[(int)$row['id']] ?? '--');
                 $row['display_name'] = $parentAccount;
                 $row['parent_account'] = $parentAccount;
                 $row['dispatch_mode_name'] = $dispatchModeMap[(int)($row['dispatch_mode_id'] ?? 0)] ?? '';
+                $row['current_difference_amount'] = $currentDifferenceAmountMap[(int)$row['id']] ?? '0.00';
                 $row['withdraw_address'] = $withdrawAddressMap[(int)$row['id']] ?? '';
                 $row['agent_enabled'] = (int)($row['show_td'] ?? 0);
             }
@@ -528,6 +530,43 @@ class UserSetting extends Backend
     {
         $map = $this->getWithdrawAddressMap([(int)$userId]);
         return $map[(int)$userId] ?? '';
+    }
+
+    protected function getCurrentDifferenceAmountMap($items)
+    {
+        $userMap = [];
+        foreach ($items as $row) {
+            $userMap[(int)$row['id']] = $row;
+        }
+        if (!$userMap) {
+            return [];
+        }
+
+        $rows = Db::name('miniapp_order')
+            ->where('user_id', 'in', array_keys($userMap))
+            ->where('status', 'in', [0, 1])
+            ->where('difference_amount', '>', 0)
+            ->order('id desc')
+            ->field('id,user_id,user_balance,difference_amount')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $order) {
+            $userId = (int)$order['user_id'];
+            if (isset($map[$userId])) {
+                continue;
+            }
+
+            $user = $userMap[$userId] ?? null;
+            $balance = round((float)($user['balance'] ?? 0), 2);
+            $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
+            $differenceAmount = round((float)($order['difference_amount'] ?? 0), 2);
+            $requiredBalance = round($baseBalance + $differenceAmount, 2);
+            $currentDifferenceAmount = $balance < $requiredBalance ? round($requiredBalance - $balance, 2) : 0.00;
+            $map[$userId] = number_format($currentDifferenceAmount, 2, '.', '');
+        }
+
+        return $map;
     }
 
     protected function saveWithdrawAddress($userId, $withdrawAddress)

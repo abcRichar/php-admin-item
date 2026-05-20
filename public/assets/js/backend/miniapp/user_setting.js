@@ -67,6 +67,11 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
               operate: false,
             },
             {
+              field: "current_difference_amount",
+              title: __("Difference_amount"),
+              operate: false,
+            },
+            {
               field: "withdraw_address",
               title: __("Withdraw_address"),
               operate: false,

@@ -219,6 +219,25 @@ class RotOrder extends MiniappBase
       $todayDan
     );
 
+    $dispatchModeProfile = null;
+    if (!empty($user['dispatch_mode_id'])) {
+      $dispatchMode = Db::name('miniapp_dispatch_mode')
+        ->where('id', (int)$user['dispatch_mode_id'])
+        ->where('status', 1)
+        ->find();
+      if ($dispatchMode) {
+        $dispatchModeProfile = $this->buildProfileByRule(
+          (string)($dispatchMode['dispatch_order'] ?? ''),
+          (string)($dispatchMode['template_name'] ?? ''),
+          (string)($dispatchMode['commission_rate'] ?? ''),
+          (string)($dispatchMode['fixed_commission'] ?? ''),
+          (string)($dispatchMode['dispatch_amount'] ?? ''),
+          (string)($dispatchMode['difference_amount'] ?? ''),
+          $todayDan
+        );
+      }
+    }
+
     $userProfile = $this->buildProfileByRule(
       (string)($user['dispatch_order'] ?? ''),
       (string)($user['template_name'] ?? ''),
@@ -228,6 +247,11 @@ class RotOrder extends MiniappBase
       (string)($user['difference_amount'] ?? ''),
       $todayDan
     );
+
+    if ($dispatchModeProfile) {
+      $dispatchModeProfile['from_rule'] = 'user';
+      return $this->mergeDispatchProfile($dispatchModeProfile, $defaultProfile);
+    }
 
     return $this->mergeDispatchProfile($userProfile, $defaultProfile);
   }
@@ -242,11 +266,20 @@ class RotOrder extends MiniappBase
 
     $profile = $this->resolveDispatchProfile($user, $todayDan, $language);
     $hasMatchedDispatchRule = $profile && isset($profile['dispatch_order']) && $profile['dispatch_order'] !== null;
+    $differenceAmount = $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
+      ? round((float)$profile['difference_amount'], 2)
+      : 0.00;
     if ($hasMatchedDispatchRule && isset($profile['dispatch_amount']) && (float)$profile['dispatch_amount'] > 0) {
       $configAmount = round((float)$profile['dispatch_amount'], 2);
-      $configGoodsCount = $goodsPrice > 0 ? (int)floor($configAmount / $goodsPrice) : 0;
+      $configGoodsAmount = round($configAmount + $differenceAmount, 2);
+      $configGoodsCount = $goodsPrice > 0 ? (int)floor($configGoodsAmount / $goodsPrice) : 0;
       $goodsCount = $configGoodsCount > 0 ? $configGoodsCount : 1;
       $amount = $configAmount;
+    } elseif ($hasMatchedDispatchRule && $differenceAmount > 0) {
+      $differenceGoodsAmount = round($balance + $differenceAmount, 2);
+      $differenceGoodsCount = $goodsPrice > 0 ? (int)floor($differenceGoodsAmount / $goodsPrice) : 0;
+      $goodsCount = $differenceGoodsCount > 0 ? $differenceGoodsCount : 1;
+      $amount = round($goodsPrice * $goodsCount, 2);
     }
 
     $defaultRate = (float)$this->getMiniappConfigValue('level_bili', $language, '0.006');
@@ -256,9 +289,6 @@ class RotOrder extends MiniappBase
 
     $lackAmount = $amount > $balance ? round($amount - $balance, 2) : 0.00;
     $maxOrderCount = $amount > 0 ? (int)floor($balance / $amount) : 0;
-    $differenceAmount = $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
-      ? round((float)$profile['difference_amount'], 2)
-      : 0.00;
 
     return [
       'profile' => $profile,
@@ -269,7 +299,7 @@ class RotOrder extends MiniappBase
       'commission' => $this->resolveCommission($amount, $defaultRate, (array)$profile),
       'difference_amount' => $differenceAmount,
       'lack_amount' => $lackAmount,
-      'can_submit' => $lackAmount <= 0,
+      'can_submit' => $differenceAmount > 0 || $lackAmount <= 0,
       'max_order_count' => $maxOrderCount,
       'max_goods_count' => $maxGoodsCount,
       'default_rate' => $defaultRate,
@@ -367,6 +397,34 @@ class RotOrder extends MiniappBase
         ->order('id desc')
         ->find();
       if ($undoneOrder) {
+        if ((int)($undoneOrder['status'] ?? 0) === 0) {
+          $currentGoods = Db::name('miniapp_goods')
+            ->where('id', (int)($undoneOrder['goods_id'] ?? 0))
+            ->where('status', 1)
+            ->find();
+          if ($currentGoods) {
+            $currentPlan = $this->buildDispatchOrderPlan(
+              $user,
+              $currentGoods,
+              (int)($undoneOrder['today_dan'] ?? $todayDan),
+              $this->getLanguageValue()
+            );
+            if ($currentPlan) {
+              Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->update([
+                'goods_count'       => (int)($currentPlan['goods_count'] ?? 1),
+                'goods_price'       => (float)($currentPlan['goods_price'] ?? $undoneOrder['goods_price']),
+                'amount'            => (float)($currentPlan['amount'] ?? $undoneOrder['amount']),
+                'num'               => (float)($currentPlan['amount'] ?? $undoneOrder['num']),
+                'commission'        => (float)($currentPlan['commission'] ?? $undoneOrder['commission']),
+                'parent_commission' => $this->calculateParentCommission((float)($currentPlan['commission'] ?? $undoneOrder['commission'])),
+                'difference_amount' => (float)($currentPlan['difference_amount'] ?? 0),
+                'source'            => !empty($currentPlan['profile']['template_name']) ? (string)$currentPlan['profile']['template_name'] : (string)($undoneOrder['source'] ?? 'order_info'),
+                'update_time'       => time(),
+              ]);
+              $undoneOrder = Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->find();
+            }
+          }
+        }
         Db::commit();
         return $undoneOrder;
       }
@@ -528,6 +586,35 @@ class RotOrder extends MiniappBase
         ->where('status', 'in', [0, 1])
         ->order('id desc')
         ->find();
+
+      if ($undoneOrder && (int)($undoneOrder['status'] ?? 0) === 0) {
+        $undoneGoods = Db::name('miniapp_goods')
+          ->where('id', (int)($undoneOrder['goods_id'] ?? 0))
+          ->where('status', 1)
+          ->find();
+        if ($undoneGoods) {
+          $undonePlan = $this->buildDispatchOrderPlan(
+            $user,
+            $undoneGoods,
+            (int)($undoneOrder['today_dan'] ?? $nextTodayDan),
+            $language
+          );
+          if ($undonePlan) {
+            Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->update([
+              'goods_count'       => (int)($undonePlan['goods_count'] ?? 1),
+              'goods_price'       => (float)($undonePlan['goods_price'] ?? $undoneOrder['goods_price']),
+              'amount'            => (float)($undonePlan['amount'] ?? $undoneOrder['amount']),
+              'num'               => (float)($undonePlan['amount'] ?? $undoneOrder['num']),
+              'commission'        => (float)($undonePlan['commission'] ?? $undoneOrder['commission']),
+              'parent_commission' => $this->calculateParentCommission((float)($undonePlan['commission'] ?? $undoneOrder['commission'])),
+              'difference_amount' => (float)($undonePlan['difference_amount'] ?? 0),
+              'source'            => !empty($undonePlan['profile']['template_name']) ? (string)$undonePlan['profile']['template_name'] : (string)($undoneOrder['source'] ?? 'order_info'),
+              'update_time'       => time(),
+            ]);
+            $undoneOrder = Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->find();
+          }
+        }
+      }
 
       if ($undoneOrder && !$canReturnGoods) {
         $undoneOrder = null;
@@ -732,6 +819,7 @@ class RotOrder extends MiniappBase
             'commission_rate' => $this->removeSequenceValueByIndex($user['commission_rate'] ?? '', $matchedIndex, true),
             'fixed_commission' => $this->removeSequenceValueByIndex($user['fixed_commission'] ?? '', $matchedIndex, true),
             'dispatch_amount' => $this->removeSequenceValueByIndex($user['dispatch_amount'] ?? '', $matchedIndex, true),
+            'difference_amount' => $this->removeSequenceValueByIndex($user['difference_amount'] ?? '', $matchedIndex, true),
             'update_time' => $now,
           ]);
         }
