@@ -547,7 +547,7 @@ class UserSetting extends Backend
             ->where('status', 'in', [0, 1])
             ->where('difference_amount', '>', 0)
             ->order('id desc')
-            ->field('id,user_id,user_balance,difference_amount')
+            ->field('id,user_id,user_balance,difference_amount,addtime,create_time')
             ->select();
 
         $map = [];
@@ -558,6 +558,16 @@ class UserSetting extends Backend
             }
 
             $user = $userMap[$userId] ?? null;
+            $resetTime = (int)($user['task_reset_time'] ?? 0);
+            $orderTime = (int)($order['addtime'] ?? 0);
+            if ($orderTime <= 0) {
+                $orderTime = (int)($order['create_time'] ?? 0);
+            }
+            if ($resetTime > 0 && $orderTime > 0 && $orderTime <= $resetTime) {
+                $map[$userId] = '0.00';
+                continue;
+            }
+
             $balance = round((float)($user['balance'] ?? 0), 2);
             $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
             $differenceAmount = round((float)($order['difference_amount'] ?? 0), 2);

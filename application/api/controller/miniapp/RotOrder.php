@@ -106,9 +106,86 @@ class RotOrder extends MiniappBase
     $this->apiBusinessError(__('miniapp.task_limit_reached'), null, 400);
   }
 
-  protected function findRandomActiveGoods($excludeGoodsId = 0)
+  protected function findRandomActiveGoodsByPriceLimit($excludeGoodsId, $maxPrice)
   {
     $excludeGoodsId = (int)$excludeGoodsId;
+    $maxPrice = round((float)$maxPrice, 2);
+    if ($maxPrice <= 0) {
+      return null;
+    }
+
+    $query = Db::name('miniapp_goods')
+      ->where('status', 1)
+      ->where('price', '<=', $maxPrice);
+    if ($excludeGoodsId > 0) {
+      $query->where('id', '<>', $excludeGoodsId);
+    }
+
+    if ((int)$query->count() <= 0) {
+      return null;
+    }
+
+    $goodsQuery = Db::name('miniapp_goods')
+      ->where('status', 1)
+      ->where('price', '<=', $maxPrice);
+    if ($excludeGoodsId > 0) {
+      $goodsQuery->where('id', '<>', $excludeGoodsId);
+    }
+
+    return $goodsQuery->orderRaw('RAND()')->find();
+  }
+
+  protected function findRandomClosestAboveBalanceGoods($excludeGoodsId, $balance)
+  {
+    $excludeGoodsId = (int)$excludeGoodsId;
+    $balance = round((float)$balance, 2);
+    $query = Db::name('miniapp_goods')
+      ->where('status', 1)
+      ->where('price', '>', $balance);
+    if ($excludeGoodsId > 0) {
+      $query->where('id', '<>', $excludeGoodsId);
+    }
+
+    $closestPrice = $query->min('price');
+    if (($closestPrice === null || $closestPrice === '') && $excludeGoodsId > 0) {
+      return $this->findRandomClosestAboveBalanceGoods(0, $balance);
+    }
+    if ($closestPrice === null || $closestPrice === '') {
+      return null;
+    }
+
+    $goodsQuery = Db::name('miniapp_goods')
+      ->where('status', 1)
+      ->where('price', (float)$closestPrice);
+    if ($excludeGoodsId > 0) {
+      $goodsQuery->where('id', '<>', $excludeGoodsId);
+    }
+
+    return $goodsQuery->orderRaw('RAND()')->find();
+  }
+
+  protected function findRandomActiveGoods($excludeGoodsId = 0, $maxPrice = 0)
+  {
+    $excludeGoodsId = (int)$excludeGoodsId;
+    $maxPrice = round((float)$maxPrice, 2);
+    if ($maxPrice > 0) {
+      $goods = $this->findRandomActiveGoodsByPriceLimit($excludeGoodsId, $maxPrice);
+      if ($goods) {
+        return $goods;
+      }
+      if ($excludeGoodsId > 0) {
+        $goods = $this->findRandomActiveGoodsByPriceLimit(0, $maxPrice);
+        if ($goods) {
+          return $goods;
+        }
+      }
+
+      $goods = $this->findRandomClosestAboveBalanceGoods($excludeGoodsId, $maxPrice);
+      if ($goods) {
+        return $goods;
+      }
+    }
+
     $query = Db::name('miniapp_goods')->where('status', 1);
     if ($excludeGoodsId > 0) {
       $query->where('id', '<>', $excludeGoodsId);
@@ -127,6 +204,39 @@ class RotOrder extends MiniappBase
       $goodsQuery->where('id', '<>', $excludeGoodsId);
     }
     return $goodsQuery->orderRaw('RAND()')->find();
+  }
+
+  protected function getNormalDispatchMaxGoodsPrice($user, $todayDan, $language)
+  {
+    $profile = $this->resolveDispatchProfile($user, $todayDan, $language);
+    $hasMatchedDispatchRule = $profile && isset($profile['dispatch_order']) && $profile['dispatch_order'] !== null;
+    if ($hasMatchedDispatchRule) {
+      return 0.00;
+    }
+
+    return round((float)($user['balance'] ?? 0), 2);
+  }
+
+  protected function findDispatchGoods($user, $todayDan, $language, $excludeGoodsId = 0)
+  {
+    return $this->findRandomActiveGoods(
+      $excludeGoodsId,
+      $this->getNormalDispatchMaxGoodsPrice($user, $todayDan, $language)
+    );
+  }
+
+  protected function replaceGoodsForNormalDispatch($goods, $user, $todayDan, $language)
+  {
+    if (!$goods) {
+      return null;
+    }
+
+    $maxPrice = $this->getNormalDispatchMaxGoodsPrice($user, $todayDan, $language);
+    if ($maxPrice <= 0 || round((float)($goods['price'] ?? 0), 2) <= $maxPrice) {
+      return $goods;
+    }
+
+    return $this->findRandomActiveGoods(0, $maxPrice) ?: $goods;
   }
 
   protected function getLastCompletedGoodsId($user)
@@ -313,7 +423,7 @@ class RotOrder extends MiniappBase
     }
 
     $balance = round((float)($user['balance'] ?? 0), 2);
-    $differenceAmount = round((float)($order['difference_amount'] ?? 0), 2);
+    $differenceAmount = $this->getEffectiveOrderDifferenceAmount($order, $user);
     if ($differenceAmount > 0) {
       $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
       $differenceRequiredBalance = round($baseBalance + $differenceAmount, 2);
@@ -337,6 +447,7 @@ class RotOrder extends MiniappBase
     }
 
     $now = time();
+    $differenceAmount = $this->getEffectiveOrderDifferenceAmount($undoneOrder, $user);
     $lackAmount = $this->calculateOrderLackAmount($undoneOrder, $user);
     return [
       'oid'                    => (int)$undoneOrder['id'],
@@ -365,7 +476,7 @@ class RotOrder extends MiniappBase
       'today_dan'              => (int)($undoneOrder['today_dan'] ?? 0),
       'qkon'                   => (int)($undoneOrder['qkon'] ?? 1),
       'group_completedornot'   => (int)($undoneOrder['group_completedornot'] ?? 1),
-      'difference_amount'      => number_format((float)($undoneOrder['difference_amount'] ?? 0), 2, '.', ''),
+      'difference_amount'      => number_format($differenceAmount, 2, '.', ''),
       'lack_amount'            => number_format($lackAmount, 2, '.', ''),
       'rands'                  => $undoneOrder['rands'] ?? null,
       'group_count'            => $undoneOrder['group_count'] ?? null,
@@ -403,6 +514,12 @@ class RotOrder extends MiniappBase
             ->where('status', 1)
             ->find();
           if ($currentGoods) {
+            $currentGoods = $this->replaceGoodsForNormalDispatch(
+              $currentGoods,
+              $user,
+              (int)($undoneOrder['today_dan'] ?? $todayDan),
+              $this->getLanguageValue()
+            );
             $currentPlan = $this->buildDispatchOrderPlan(
               $user,
               $currentGoods,
@@ -411,8 +528,13 @@ class RotOrder extends MiniappBase
             );
             if ($currentPlan) {
               Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->update([
+                'goods_id'          => (int)($currentGoods['id'] ?? $undoneOrder['goods_id']),
                 'goods_count'       => (int)($currentPlan['goods_count'] ?? 1),
                 'goods_price'       => (float)($currentPlan['goods_price'] ?? $undoneOrder['goods_price']),
+                'goods_name'        => (string)($currentGoods['title'] ?? $undoneOrder['goods_name']),
+                'shop_name'         => (string)($currentGoods['title'] ?? $undoneOrder['shop_name']),
+                'goods_pic'         => (string)($currentGoods['image'] ?? $undoneOrder['goods_pic']),
+                'goods_image'       => (string)($currentGoods['image'] ?? $undoneOrder['goods_image']),
                 'amount'            => (float)($currentPlan['amount'] ?? $undoneOrder['amount']),
                 'num'               => (float)($currentPlan['amount'] ?? $undoneOrder['num']),
                 'commission'        => (float)($currentPlan['commission'] ?? $undoneOrder['commission']),
@@ -564,7 +686,7 @@ class RotOrder extends MiniappBase
       $nextTodayDan = $todayCompleted + $incompleteCount + 1;
       $lastCompletedGoodsId = $this->getLastCompletedGoodsId($user);
       $canReturnGoods = $taskEnabled && !$taskLimitReached;
-      $currentGoods = $canReturnGoods ? $this->findRandomActiveGoods($lastCompletedGoodsId) : null;
+      $currentGoods = $canReturnGoods ? $this->findDispatchGoods($user, $nextTodayDan, $language, $lastCompletedGoodsId) : null;
       $dispatchPlan = $currentGoods ? $this->buildDispatchOrderPlan($user, $currentGoods, $nextTodayDan, $language) : null;
 
       // uinfo
@@ -593,6 +715,12 @@ class RotOrder extends MiniappBase
           ->where('status', 1)
           ->find();
         if ($undoneGoods) {
+          $undoneGoods = $this->replaceGoodsForNormalDispatch(
+            $undoneGoods,
+            $user,
+            (int)($undoneOrder['today_dan'] ?? $nextTodayDan),
+            $language
+          );
           $undonePlan = $this->buildDispatchOrderPlan(
             $user,
             $undoneGoods,
@@ -601,8 +729,13 @@ class RotOrder extends MiniappBase
           );
           if ($undonePlan) {
             Db::name('miniapp_order')->where('id', (int)$undoneOrder['id'])->update([
+              'goods_id'          => (int)($undoneGoods['id'] ?? $undoneOrder['goods_id']),
               'goods_count'       => (int)($undonePlan['goods_count'] ?? 1),
               'goods_price'       => (float)($undonePlan['goods_price'] ?? $undoneOrder['goods_price']),
+              'goods_name'        => (string)($undoneGoods['title'] ?? $undoneOrder['goods_name']),
+              'shop_name'         => (string)($undoneGoods['title'] ?? $undoneOrder['shop_name']),
+              'goods_pic'         => (string)($undoneGoods['image'] ?? $undoneOrder['goods_pic']),
+              'goods_image'       => (string)($undoneGoods['image'] ?? $undoneOrder['goods_image']),
               'amount'            => (float)($undonePlan['amount'] ?? $undoneOrder['amount']),
               'num'               => (float)($undonePlan['amount'] ?? $undoneOrder['num']),
               'commission'        => (float)($undonePlan['commission'] ?? $undoneOrder['commission']),
@@ -741,7 +874,7 @@ class RotOrder extends MiniappBase
       $this->assertTaskLimitNotReached($completedCount, $orderNum);
       $this->assertTaskUpdateEnabled($user);
 
-      $goods = $this->findRandomActiveGoods($this->getLastCompletedGoodsId($user));
+      $goods = $this->findDispatchGoods($user, $todayDan, $language, $this->getLastCompletedGoodsId($user));
       if (!$goods) {
         $this->apiError(__('miniapp.goods_not_found'), null, 404);
       }

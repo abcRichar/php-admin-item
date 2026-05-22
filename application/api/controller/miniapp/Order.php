@@ -537,7 +537,7 @@ class Order extends MiniappBase
 
         $requiredAmount = round((float)($latestOrder['num'] ?? $latestOrder['amount'] ?? 0), 2);
         $balance = round((float)$latestUser['balance'], 2);
-        $differenceAmount = round((float)($latestOrder['difference_amount'] ?? 0), 2);
+        $differenceAmount = $this->getEffectiveOrderDifferenceAmount($latestOrder, $latestUser);
         if ($differenceAmount > 0) {
           $baseBalance = round((float)($latestOrder['user_balance'] ?? 0), 2);
           $differenceRequiredBalance = round($baseBalance + $differenceAmount, 2);

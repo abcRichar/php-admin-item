@@ -88,6 +88,30 @@ class MiniappBase extends Api
       ->count();
   }
 
+  protected function isOrderBeforeTaskReset($order, $user)
+  {
+    $resetTime = $this->getTaskResetTime($user);
+    if ($resetTime <= 0 || !$order) {
+      return false;
+    }
+
+    $orderTime = (int)($order['addtime'] ?? 0);
+    if ($orderTime <= 0) {
+      $orderTime = (int)($order['create_time'] ?? 0);
+    }
+
+    return $orderTime > 0 && $orderTime <= $resetTime;
+  }
+
+  protected function getEffectiveOrderDifferenceAmount($order, $user)
+  {
+    if ($this->isOrderBeforeTaskReset($order, $user)) {
+      return 0.00;
+    }
+
+    return round((float)($order['difference_amount'] ?? 0), 2);
+  }
+
   protected function getParentRebateRate()
   {
     try {
