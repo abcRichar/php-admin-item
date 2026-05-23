@@ -553,15 +553,17 @@ class Order extends MiniappBase
           }
         }
 
-        $lackAmount = $requiredAmount > $balance ? round($requiredAmount - $balance, 2) : 0.00;
-        if ($lackAmount > 0) {
-          Db::rollback();
-          $this->apiError(__('miniapp.balance_not_enough'), [
-            'balance' => (string)$latestUser['balance'],
-            'required_amount' => (string)$requiredAmount,
-            'lack_amount' => (string)$lackAmount,
-            'order_no' => (string)$latestOrder['order_no'],
-          ], 400);
+        if (!$this->isOrderBeforeTaskReset($latestOrder, $latestUser)) {
+          $lackAmount = $requiredAmount > $balance ? round($requiredAmount - $balance, 2) : 0.00;
+          if ($lackAmount > 0) {
+            Db::rollback();
+            $this->apiError(__('miniapp.balance_not_enough'), [
+              'balance' => (string)$latestUser['balance'],
+              'required_amount' => (string)$requiredAmount,
+              'lack_amount' => (string)$lackAmount,
+              'order_no' => (string)$latestOrder['order_no'],
+            ], 400);
+          }
         }
 
         $now = time();

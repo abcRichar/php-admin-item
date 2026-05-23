@@ -545,9 +545,8 @@ class UserSetting extends Backend
         $rows = Db::name('miniapp_order')
             ->where('user_id', 'in', array_keys($userMap))
             ->where('status', 'in', [0, 1])
-            ->where('difference_amount', '>', 0)
             ->order('id desc')
-            ->field('id,user_id,user_balance,difference_amount,addtime,create_time')
+            ->field('id,user_id,user_balance,difference_amount,num,amount,addtime,create_time')
             ->select();
 
         $map = [];
@@ -571,8 +570,13 @@ class UserSetting extends Backend
             $balance = round((float)($user['balance'] ?? 0), 2);
             $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
             $differenceAmount = round((float)($order['difference_amount'] ?? 0), 2);
-            $requiredBalance = round($baseBalance + $differenceAmount, 2);
-            $currentDifferenceAmount = $balance < $requiredBalance ? round($requiredBalance - $balance, 2) : 0.00;
+            if ($differenceAmount > 0) {
+                $requiredBalance = round($baseBalance + $differenceAmount, 2);
+                $currentDifferenceAmount = $balance < $requiredBalance ? round($requiredBalance - $balance, 2) : 0.00;
+            } else {
+                $requiredAmount = round((float)($order['num'] ?? $order['amount'] ?? 0), 2);
+                $currentDifferenceAmount = $balance < $requiredAmount ? round($requiredAmount - $balance, 2) : 0.00;
+            }
             $map[$userId] = number_format($currentDifferenceAmount, 2, '.', '');
         }
 

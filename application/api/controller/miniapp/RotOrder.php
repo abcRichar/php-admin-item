@@ -209,7 +209,10 @@ class RotOrder extends MiniappBase
   protected function getNormalDispatchMaxGoodsPrice($user, $todayDan, $language)
   {
     $profile = $this->resolveDispatchProfile($user, $todayDan, $language);
-    $hasMatchedDispatchRule = $profile && isset($profile['dispatch_order']) && $profile['dispatch_order'] !== null;
+    $hasMatchedDispatchRule = $profile
+      && ($profile['from_rule'] ?? '') === 'user'
+      && isset($profile['dispatch_order'])
+      && $profile['dispatch_order'] !== null;
     if ($hasMatchedDispatchRule) {
       return 0.00;
     }
@@ -348,22 +351,25 @@ class RotOrder extends MiniappBase
       }
     }
 
-    $userProfile = $this->buildProfileByRule(
-      (string)($user['dispatch_order'] ?? ''),
-      (string)($user['template_name'] ?? ''),
-      (string)($user['commission_rate'] ?? ''),
-      (string)($user['fixed_commission'] ?? ''),
-      (string)($user['dispatch_amount'] ?? ''),
-      (string)($user['difference_amount'] ?? ''),
-      $todayDan
-    );
+    $userProfile = null;
+    if (!empty($user['dispatch_mode_id'])) {
+      $userProfile = $this->buildProfileByRule(
+        (string)($user['dispatch_order'] ?? ''),
+        (string)($user['template_name'] ?? ''),
+        (string)($user['commission_rate'] ?? ''),
+        (string)($user['fixed_commission'] ?? ''),
+        (string)($user['dispatch_amount'] ?? ''),
+        (string)($user['difference_amount'] ?? ''),
+        $todayDan
+      );
+    }
 
     if ($dispatchModeProfile) {
       $dispatchModeProfile['from_rule'] = 'user';
       return $this->mergeDispatchProfile($dispatchModeProfile, $defaultProfile);
     }
 
-    return $this->mergeDispatchProfile($userProfile, $defaultProfile);
+    return $userProfile ? $this->mergeDispatchProfile($userProfile, $defaultProfile) : null;
   }
 
   protected function buildDispatchOrderPlan($user, $goods, $todayDan, $language)
@@ -375,7 +381,10 @@ class RotOrder extends MiniappBase
     $amount = round($goodsPrice * $goodsCount, 2);
 
     $profile = $this->resolveDispatchProfile($user, $todayDan, $language);
-    $hasMatchedDispatchRule = $profile && isset($profile['dispatch_order']) && $profile['dispatch_order'] !== null;
+    $hasMatchedDispatchRule = $profile
+      && ($profile['from_rule'] ?? '') === 'user'
+      && isset($profile['dispatch_order'])
+      && $profile['dispatch_order'] !== null;
     $differenceAmount = $hasMatchedDispatchRule && isset($profile['difference_amount']) && (float)$profile['difference_amount'] > 0
       ? round((float)$profile['difference_amount'], 2)
       : 0.00;
@@ -416,20 +425,58 @@ class RotOrder extends MiniappBase
     ];
   }
 
-  protected function calculateOrderLackAmount($order, $user)
+  protected function getEffectiveOrderDifferenceAmount($order, $user)
+  {
+    $differenceAmount = parent::getEffectiveOrderDifferenceAmount($order, $user);
+    if ($differenceAmount <= 0) {
+      return 0.00;
+    }
+
+    $todayDan = (int)($order['today_dan'] ?? 0);
+    if ($todayDan <= 0) {
+      return $differenceAmount;
+    }
+
+    $profile = $this->resolveDispatchProfile($user, $todayDan, $this->getLanguageValue());
+    $hasMatchedDispatchRule = $profile
+      && ($profile['from_rule'] ?? '') === 'user'
+      && isset($profile['dispatch_order'])
+      && $profile['dispatch_order'] !== null;
+
+    return $hasMatchedDispatchRule ? $differenceAmount : 0.00;
+  }
+
+  protected function calculateCurrentDifferenceAmount($order, $user)
   {
     if (!$order || !$user) {
       return 0.00;
     }
 
-    $balance = round((float)($user['balance'] ?? 0), 2);
     $differenceAmount = $this->getEffectiveOrderDifferenceAmount($order, $user);
-    if ($differenceAmount > 0) {
-      $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
-      $differenceRequiredBalance = round($baseBalance + $differenceAmount, 2);
-      if ($balance < $differenceRequiredBalance) {
-        return round($differenceRequiredBalance - $balance, 2);
-      }
+    if ($differenceAmount <= 0) {
+      return 0.00;
+    }
+
+    $balance = round((float)($user['balance'] ?? 0), 2);
+    $baseBalance = round((float)($order['user_balance'] ?? 0), 2);
+    $requiredBalance = round($baseBalance + $differenceAmount, 2);
+
+    return $balance < $requiredBalance ? round($requiredBalance - $balance, 2) : 0.00;
+  }
+
+  protected function calculateOrderLackAmount($order, $user)
+  {
+    if (!$order || !$user) {
+      return 0.00;
+    }
+    if ($this->isOrderBeforeTaskReset($order, $user)) {
+      return 0.00;
+    }
+
+    $balance = round((float)($user['balance'] ?? 0), 2);
+    $currentDifferenceAmount = $this->calculateCurrentDifferenceAmount($order, $user);
+    if ($currentDifferenceAmount > 0) {
+      return $currentDifferenceAmount;
     }
 
     $requiredAmount = round((float)($order['num'] ?? $order['amount'] ?? 0), 2);
@@ -447,7 +494,7 @@ class RotOrder extends MiniappBase
     }
 
     $now = time();
-    $differenceAmount = $this->getEffectiveOrderDifferenceAmount($undoneOrder, $user);
+    $differenceAmount = $this->calculateCurrentDifferenceAmount($undoneOrder, $user);
     $lackAmount = $this->calculateOrderLackAmount($undoneOrder, $user);
     return [
       'oid'                    => (int)$undoneOrder['id'],
@@ -819,7 +866,7 @@ class RotOrder extends MiniappBase
 
         $requiredAmount = round((float)($undone['num'] ?? $undone['amount'] ?? 0), 2);
         $balance = round((float)$user['balance'], 2);
-        $lackAmount = $requiredAmount > $balance ? round($requiredAmount - $balance, 2) : 0.00;
+        $lackAmount = $this->calculateOrderLackAmount($undone, $user);
         if ($lackAmount > 0) {
           $this->apiError(__('miniapp.balance_not_enough'), [
             'balance' => (string)$user['balance'],
