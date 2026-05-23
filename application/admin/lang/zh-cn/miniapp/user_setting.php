@@ -17,6 +17,7 @@ return [
     'Login_status' => '登录状态',
     'Task_update_status' => '任务开关',
     'Task_status' => '任务开关',
+    'Task_progress' => '任务进度',
     'Reset_task_count' => '归零',
     'Last_login_time' => '最后登录时间',
     'Status' => '状态',

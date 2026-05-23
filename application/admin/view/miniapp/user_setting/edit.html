@@ -58,6 +58,12 @@
     </div>
   </div>
   <div class="form-group">
+    <label class="control-label col-xs-12 col-sm-2">{:__('Task_progress')}:</label>
+    <div class="col-xs-12 col-sm-8">
+      <p class="form-control-static">{$row.task_progress|htmlentities}</p>
+    </div>
+  </div>
+  <div class="form-group">
     <label class="control-label col-xs-12 col-sm-2">{:__('Reset_task_count')}:</label>
     <div class="col-xs-12 col-sm-8">
       <a href="{:url('miniapp/user_setting/reset_task_count', ['ids' => $row.id])}" class="btn btn-warning btn-ajax" data-confirm="{:__('Confirm reset task count')}" data-success="Toastr.success('{:__('Task count reset successful')}');">

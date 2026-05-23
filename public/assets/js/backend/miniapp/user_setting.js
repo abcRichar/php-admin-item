@@ -23,8 +23,8 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
           Table.api.replaceurl(
             "miniapp/user_setting/create_subordinate",
             row,
-            table
-          )
+            table,
+          ),
         );
         return (
           '<a href="' +
@@ -74,6 +74,11 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
             {
               field: "withdraw_address",
               title: __("Withdraw_address"),
+              operate: false,
+            },
+            {
+              field: "task_progress",
+              title: __("Task_progress"),
               operate: false,
             },
             {
@@ -184,7 +189,7 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
                   this,
                   value,
                   row,
-                  index
+                  index,
                 );
                 return html + " " + createSubordinateButton(row, index);
               },

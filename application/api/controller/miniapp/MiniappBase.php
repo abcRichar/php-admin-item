@@ -26,7 +26,7 @@ class MiniappBase extends Api
 
   protected function _initialize()
   {
-    $this->miniappLanguage = $this->resolveLanguageConfig(true);
+    $this->miniappLanguage = $this->resolveLanguageConfig(false);
     parent::_initialize();
     Lang::range($this->miniappLanguage['langset']);
     Lang::load(APP_PATH . 'api/lang/' . $this->miniappLanguage['langset'] . '/miniapp.php');
@@ -262,7 +262,7 @@ class MiniappBase extends Api
   protected function getLanguageValue()
   {
     if (!$this->miniappLanguage) {
-      $this->miniappLanguage = $this->resolveLanguageConfig(true);
+      $this->miniappLanguage = $this->resolveLanguageConfig(false);
     }
     return (int)$this->miniappLanguage['value'];
   }
@@ -295,13 +295,7 @@ class MiniappBase extends Api
       return $language;
     }
 
-    if ($allowHistory) {
-      $historyLanguage = $this->findHistoryLanguage();
-      if ($historyLanguage !== null) {
-        return $historyLanguage;
-      }
-    }
-
+    // 默认返回英文，不再查找历史语言记录
     return $this->normalizeLanguage(self::LANGUAGE_EN);
   }
 

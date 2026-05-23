@@ -63,6 +63,7 @@ class UserSetting extends Backend
             $dispatchModeMap = $this->getDispatchModeNameMap($modeIds);
             $withdrawAddressMap = $this->getWithdrawAddressMap($userIds);
             $currentDifferenceAmountMap = $this->getCurrentDifferenceAmountMap($items);
+            $taskProgressMap = $this->getTaskProgressMap($userIds);
 
             foreach ($items as $row) {
                 $parentAccount = $parentAccountMap[(int)($row['parent_id'] ?? 0)] ?? ($inviteAdminAccountMap[(int)$row['id']] ?? '--');
@@ -72,6 +73,7 @@ class UserSetting extends Backend
                 $row['current_difference_amount'] = $currentDifferenceAmountMap[(int)$row['id']] ?? '0.00';
                 $row['withdraw_address'] = $withdrawAddressMap[(int)$row['id']] ?? '';
                 $row['agent_enabled'] = (int)($row['show_td'] ?? 0);
+                $row['task_progress'] = $taskProgressMap[(int)$row['id']] ?? '0/60';
             }
 
             return json([
@@ -95,6 +97,7 @@ class UserSetting extends Backend
             $row['parent_account'] = $this->getParentAccount((int)($row['parent_id'] ?? 0), (int)$row['id']);
             $row['dispatch_mode_id'] = (int)($row['dispatch_mode_id'] ?? 0);
             $row['withdraw_address'] = $this->getWithdrawAddress((int)$row['id']);
+            $row['task_progress'] = $this->getTaskProgress((int)$row['id']);
             $this->view->assign('row', $row);
             return $this->view->fetch();
         }
@@ -911,5 +914,55 @@ class UserSetting extends Backend
         }
 
         $this->success();
+    }
+
+    protected function getTaskProgressMap(array $userIds)
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if (!$userIds) {
+            return [];
+        }
+
+        // 获取用户信息（包含任务重置时间）
+        $users = Db::name('miniapp_user')
+            ->where('id', 'in', $userIds)
+            ->field('id,task_reset_time')
+            ->select();
+
+        $userMap = [];
+        foreach ($users as $user) {
+            $userMap[(int)$user['id']] = $user;
+        }
+
+        $map = [];
+        foreach ($userIds as $userId) {
+            $user = $userMap[$userId] ?? null;
+            if (!$user) {
+                $map[$userId] = '0/60';
+                continue;
+            }
+
+            $resetTime = (int)($user['task_reset_time'] ?? 0);
+            
+            // 统计已完成的任务数量（状态为2且完成时间大于重置时间）
+            $completedCount = (int)Db::name('miniapp_order')
+                ->where('user_id', $userId)
+                ->where('status', 2)
+                ->where('complete_time', '>', $resetTime)
+                ->count();
+
+            // 默认每日任务数量为60
+            $totalTasks = 60;
+            
+            $map[$userId] = $completedCount . '/' . $totalTasks;
+        }
+
+        return $map;
+    }
+
+    protected function getTaskProgress($userId)
+    {
+        $map = $this->getTaskProgressMap([(int)$userId]);
+        return $map[(int)$userId] ?? '0/60';
     }
 }

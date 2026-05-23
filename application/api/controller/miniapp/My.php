@@ -184,12 +184,16 @@ class My extends MiniappBase
           if ($exists) {
             Db::name('miniapp_user_info')->where('user_id', (int)$user['id'])->update([
               'address' => $address,
+              'usdt_diz' => $address,
+              'usdt_address' => $address,
               'update_time' => $now,
             ]);
           } else {
             Db::name('miniapp_user_info')->insert([
               'user_id' => (int)$user['id'],
               'address' => $address,
+              'usdt_diz' => $address,
+              'usdt_address' => $address,
               'create_time' => $now,
               'update_time' => $now,
             ]);

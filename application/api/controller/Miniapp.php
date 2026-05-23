@@ -26,7 +26,7 @@ class Miniapp extends Api
      */
     protected function _initialize()
     {
-        $this->miniappLanguage = $this->resolveLanguageConfig(true);
+        $this->miniappLanguage = $this->resolveLanguageConfig(false);
         parent::_initialize();
         Lang::range($this->miniappLanguage['langset']);
         Lang::load(APP_PATH . 'api/lang/' . $this->miniappLanguage['langset'] . '/miniapp.php');
@@ -691,7 +691,7 @@ class Miniapp extends Api
     protected function getLanguageValue()
     {
         if (!$this->miniappLanguage) {
-            $this->miniappLanguage = $this->resolveLanguageConfig(true);
+            $this->miniappLanguage = $this->resolveLanguageConfig(false);
         }
 
         return (int)$this->miniappLanguage['value'];
