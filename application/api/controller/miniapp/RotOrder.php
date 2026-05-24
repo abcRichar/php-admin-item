@@ -487,6 +487,16 @@ class RotOrder extends MiniappBase
     return 0.00;
   }
 
+  protected function shouldRefreshUndonePreviewOrder($undoneOrder, $user)
+  {
+    if (!$undoneOrder || (int)($undoneOrder['status'] ?? 0) !== 0) {
+      return false;
+    }
+
+    // 差额单的订单金额必须以创建预览单时的余额快照为准，避免用户补差额后被重新抬高金额。
+    return $this->getEffectiveOrderDifferenceAmount($undoneOrder, $user) <= 0;
+  }
+
   protected function formatUndoneOrder($undoneOrder, $user = null)
   {
     if (!$undoneOrder) {
@@ -555,7 +565,7 @@ class RotOrder extends MiniappBase
         ->order('id desc')
         ->find();
       if ($undoneOrder) {
-        if ((int)($undoneOrder['status'] ?? 0) === 0) {
+        if ($this->shouldRefreshUndonePreviewOrder($undoneOrder, $user)) {
           $currentGoods = Db::name('miniapp_goods')
             ->where('id', (int)($undoneOrder['goods_id'] ?? 0))
             ->where('status', 1)
@@ -756,7 +766,7 @@ class RotOrder extends MiniappBase
         ->order('id desc')
         ->find();
 
-      if ($undoneOrder && (int)($undoneOrder['status'] ?? 0) === 0) {
+      if ($this->shouldRefreshUndonePreviewOrder($undoneOrder, $user)) {
         $undoneGoods = Db::name('miniapp_goods')
           ->where('id', (int)($undoneOrder['goods_id'] ?? 0))
           ->where('status', 1)

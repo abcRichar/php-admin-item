@@ -469,7 +469,7 @@ class Auth
             // 删除会员
             User::destroy($user_id);
             // 删除会员指定的所有Token
-            Token::clear($user_id);
+            // Token::clear($user_id);
 
             Hook::listen("user_delete_successed", $user);
             Db::commit();

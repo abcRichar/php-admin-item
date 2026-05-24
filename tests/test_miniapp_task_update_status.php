@@ -116,7 +116,7 @@ assert_contains(
 
 assert_contains(
     $rotOrder,
-    '$currentGoods = $canReturnGoods ? $this->findRandomActiveGoods($lastCompletedGoodsId) : null;',
+    '$currentGoods = $canReturnGoods ? $this->findDispatchGoods($user, $nextTodayDan, $language, $lastCompletedGoodsId) : null;',
     'Order info does not return new goods when task limit is reached'
 );
 

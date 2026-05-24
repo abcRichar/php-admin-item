@@ -43,7 +43,7 @@ assert_file_contains(
 
 assert_file_contains(
     $rotOrder,
-    'protected function findRandomActiveGoods($excludeGoodsId = 0)',
+    'protected function findRandomActiveGoods($excludeGoodsId = 0, $maxPrice = 0)',
     'Rot order uses random active goods helper'
 );
 
@@ -79,7 +79,7 @@ assert_file_not_contains(
 
 assert_file_contains(
     $rotOrder,
-    '$currentGoods = $canReturnGoods ? $this->findRandomActiveGoods($lastCompletedGoodsId) : null;',
+    '$currentGoods = $canReturnGoods ? $this->findDispatchGoods($user, $nextTodayDan, $language, $lastCompletedGoodsId) : null;',
     'Order info returns no goods after task limit is reached'
 );
 
