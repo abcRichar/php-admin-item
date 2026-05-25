@@ -220,8 +220,8 @@ class MiniappChatServer extends Command
         $actorType = (string)($packet['actor_type'] ?? '');
         if ($actorType === MiniappChat::SENDER_USER) {
             $token = trim((string)($packet['token'] ?? ''));
-            $user = $token === '' ? null : Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
-            if (!$user || $this->isMiniappTokenExpired($user)) {
+            $user = $token === '' ? null : $this->getMiniappUserByToken($token);
+            if (!$user) {
                 $this->sendPacket($id, ['type' => 'auth', 'code' => 0, 'msg' => '登录已失效']);
                 return;
             }
@@ -409,5 +409,39 @@ class MiniappChatServer extends Command
     {
         $lastLoginTime = isset($user['last_login_time']) ? (int)$user['last_login_time'] : 0;
         return $lastLoginTime <= 0 || ($lastLoginTime + 2592000) <= time();
+    }
+
+    protected function getMiniappUserByToken($token)
+    {
+        $token = trim((string)$token);
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            $session = Db::name('miniapp_user_token')->where('token', $token)->find();
+        } catch (\Throwable $e) {
+            $session = null;
+        }
+
+        if ($session) {
+            if ((int)($session['status'] ?? 0) !== 1 || (int)($session['expire_time'] ?? 0) <= time()) {
+                try {
+                    Db::name('miniapp_user_token')->where('id', (int)$session['id'])->update([
+                        'status'      => 0,
+                        'logout_time' => time(),
+                        'update_time' => time(),
+                    ]);
+                } catch (\Throwable $e) {
+                }
+                return null;
+            }
+
+            $user = Db::name('miniapp_user')->where('id', (int)$session['user_id'])->where('status', 1)->find();
+            return $user ?: null;
+        }
+
+        $user = Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
+        return $user && !$this->isMiniappTokenExpired($user) ? $user : null;
     }
 }

@@ -33,6 +33,7 @@ class User extends MiniappBase
           'last_login_ip'   => (string)$this->request->ip(),
           'update_time'     => $now,
         ]);
+      $this->createMiniappUserToken($user, $token, $now);
 
       Db::name('miniapp_user_login_log')->insert([
         'user_id'     => (int)$user['id'],
@@ -111,6 +112,8 @@ class User extends MiniappBase
         'create_time'     => $now,
         'update_time'     => $now,
       ]);
+      $user = Db::name('miniapp_user')->where('id', (int)$userId)->find();
+      $this->createMiniappUserToken($user, $token, $now);
       Db::name('miniapp_user_register_log')->insert([
         'user_id'          => $userId,
         'tel'              => $tel,
@@ -163,7 +166,7 @@ class User extends MiniappBase
         'token'       => (string)$this->getToken(),
         'create_time' => $now,
       ]);
-      Db::name('miniapp_user')->where('id', (int)$user['id'])->update(['token' => '', 'update_time' => $now]);
+      $this->invalidateMiniappToken($this->getToken(), $now);
       $this->logRequest((int)$user['id']);
       $this->apiSuccess(__('miniapp.success'));
     });

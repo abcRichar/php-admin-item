@@ -216,6 +216,94 @@ class MiniappBase extends Api
     return (string)$this->request->header('token', $this->request->param('token', ''));
   }
 
+  protected function createMiniappUserToken($user, $token, $now = null)
+  {
+    $userId = (int)($user['id'] ?? 0);
+    $token = trim((string)$token);
+    if ($userId <= 0 || $token === '') {
+      return;
+    }
+
+    $now = $now === null ? time() : (int)$now;
+    try {
+      Db::name('miniapp_user_token')->insert([
+        'user_id'     => $userId,
+        'token'       => $token,
+        'expire_time' => $this->getTokenExpireAt($now),
+        'login_ip'    => (string)$this->request->ip(),
+        'user_agent'  => substr((string)$this->request->header('user-agent', ''), 0, 255),
+        'status'      => 1,
+        'logout_time' => 0,
+        'create_time' => $now,
+        'update_time' => $now,
+      ]);
+    } catch (\Throwable $e) {
+    }
+  }
+
+  protected function getMiniappUserByToken($token)
+  {
+    $token = trim((string)$token);
+    if ($token === '') {
+      return null;
+    }
+
+    try {
+      $session = Db::name('miniapp_user_token')->where('token', $token)->find();
+    } catch (\Throwable $e) {
+      $session = null;
+    }
+
+    if ($session) {
+      if ((int)($session['status'] ?? 0) !== 1) {
+        return null;
+      }
+      if ((int)($session['expire_time'] ?? 0) <= time()) {
+        try {
+          Db::name('miniapp_user_token')->where('id', (int)$session['id'])->update([
+            'status'      => 0,
+            'logout_time' => time(),
+            'update_time' => time(),
+          ]);
+        } catch (\Throwable $e) {
+        }
+        return null;
+      }
+
+      $user = Db::name('miniapp_user')->where('id', (int)$session['user_id'])->where('status', 1)->find();
+      return $user ?: null;
+    }
+
+    $user = Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
+    if ($user && $this->isTokenExpired($user)) {
+      Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
+        'token'       => '',
+        'update_time' => time(),
+      ]);
+      return null;
+    }
+
+    return $user ?: null;
+  }
+
+  protected function invalidateMiniappToken($token, $now = null)
+  {
+    $token = trim((string)$token);
+    if ($token === '') {
+      return;
+    }
+
+    $now = $now === null ? time() : (int)$now;
+    try {
+      Db::name('miniapp_user_token')->where('token', $token)->update([
+        'status'      => 0,
+        'logout_time' => $now,
+        'update_time' => $now,
+      ]);
+    } catch (\Throwable $e) {
+    }
+  }
+
   protected function getMiniappUser($required = true)
   {
     $token = $this->getToken();
@@ -226,17 +314,7 @@ class MiniappBase extends Api
       return null;
     }
 
-    $user = Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
-    if ($user && $this->isTokenExpired($user)) {
-      Db::name('miniapp_user')->where('id', (int)$user['id'])->update([
-        'token'       => '',
-        'update_time' => time(),
-      ]);
-      if ($required) {
-        $this->apiError(__('miniapp.token_expired'), null, 401);
-      }
-      return null;
-    }
+    $user = $this->getMiniappUserByToken($token);
     if (!$user && $required) {
       $this->apiError(__('miniapp.login_required'), null, 401);
     }
@@ -303,7 +381,7 @@ class MiniappBase extends Api
   {
     $token = $this->getToken();
     if ($token !== '') {
-      $user = Db::name('miniapp_user')->where('token', $token)->where('status', 1)->find();
+      $user = $this->getMiniappUserByToken($token);
       $languageQuery = Db::name('miniapp_support_language_log');
       if ($user) {
         $languageQuery->where(function ($query) use ($token, $user) {
