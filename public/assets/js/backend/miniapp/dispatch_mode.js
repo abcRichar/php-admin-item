@@ -23,6 +23,7 @@ define(['jquery', 'bootstrap', 'backend', 'table', 'form'], function ($, undefin
                     {checkbox: true},
                     {field: 'id', title: __('Id'), sortable: true},
                     {field: 'template_name', title: __('Template_name'), operate: 'LIKE'},
+                    {field: 'creator_username', title: __('Creator_username'), operate: false},
                     {field: 'dispatch_order', title: __('Dispatch_order'), operate: false},
                     {field: 'commission_rate', title: __('Commission_rate'), operate: false},
                     {field: 'fixed_commission', title: __('Fixed_commission'), operate: false},

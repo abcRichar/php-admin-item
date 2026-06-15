@@ -32,6 +32,7 @@ class DispatchMode extends Backend
         }
 
         $params = $this->normalizeParams($this->request->post('row/a'));
+        $params['creator_admin_id'] = $this->auth->isSuperAdmin() ? 0 : $this->getCurrentAdminId();
         Db::startTrans();
         try {
             $result = $this->model->allowField(true)->save($params);
@@ -52,6 +53,7 @@ class DispatchMode extends Backend
         if (!$row) {
             $this->error(__('No Results were found'));
         }
+        $this->assertCanManageDispatchMode($row);
         if (!$this->request->isPost()) {
             $this->view->assign('row', $row);
             return $this->view->fetch();
@@ -72,6 +74,78 @@ class DispatchMode extends Backend
         $this->success();
     }
 
+    public function index()
+    {
+        $this->request->filter(['strip_tags', 'trim']);
+        if ($this->request->isAjax()) {
+            if ($this->request->request('keyField')) {
+                return $this->selectpage();
+            }
+
+            list($where, $sort, $order, $offset, $limit) = $this->buildparams();
+            $query = $this->model->where($where);
+            $this->applyOwnManageScope($query);
+            $list = $query->order($sort, $order)->paginate($limit);
+
+            $items = $list->items();
+            $creatorAdminIds = [];
+            foreach ($items as $row) {
+                if (!empty($row['creator_admin_id'])) {
+                    $creatorAdminIds[] = (int)$row['creator_admin_id'];
+                }
+            }
+            $creatorMap = $this->getCreatorAdminNameMap($creatorAdminIds);
+            foreach ($items as $row) {
+                $creatorAdminId = (int)($row['creator_admin_id'] ?? 0);
+                $row['creator_username'] = $creatorAdminId > 0 ? ($creatorMap[$creatorAdminId] ?? '--') : __('Super admin');
+            }
+
+            return json([
+                'total' => $list->total(),
+                'rows'  => $items,
+            ]);
+        }
+
+        return $this->view->fetch();
+    }
+
+    public function del($ids = null)
+    {
+        if (!$this->request->isPost()) {
+            $this->error(__("Invalid parameters"));
+        }
+
+        $ids = $ids ?: $this->request->post('ids');
+        $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)$ids)))));
+        if (!$ids) {
+            $this->error(__('Parameter %s can not be empty', 'ids'));
+        }
+
+        $query = $this->model->where('id', 'in', $ids);
+        $this->applyOwnManageScope($query);
+        $list = $query->select();
+        if (count($list) !== count($ids)) {
+            $this->error(__('You have no permission'), '');
+        }
+
+        Db::startTrans();
+        try {
+            $count = 0;
+            foreach ($list as $item) {
+                $count += $item->delete();
+            }
+            if (!$count) {
+                throw new \RuntimeException(__('No rows were deleted'));
+            }
+            Db::commit();
+        } catch (\Throwable $e) {
+            Db::rollback();
+            $this->error($e->getMessage());
+        }
+
+        $this->success();
+    }
+
     protected function normalizeParams($params)
     {
         if (!$params) {
@@ -88,6 +162,59 @@ class DispatchMode extends Backend
             'status'           => isset($params['status']) ? (int)$params['status'] : 1,
             'sort'             => isset($params['sort']) ? (int)$params['sort'] : 0,
         ];
+    }
+
+    protected function applyOwnManageScope($query)
+    {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return $query;
+        }
+
+        $adminId = $this->getCurrentAdminId();
+        return $adminId > 0 ? $query->where('creator_admin_id', $adminId) : $query->where('1=0');
+    }
+
+    protected function assertCanManageDispatchMode($row)
+    {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return;
+        }
+
+        $creatorAdminId = (int)($row['creator_admin_id'] ?? 0);
+        if ($creatorAdminId <= 0) {
+            $this->error(__('Super admin dispatch mode can not be modified'), '');
+        }
+
+        if ($creatorAdminId !== $this->getCurrentAdminId()) {
+            $this->error(__('You have no permission'), '');
+        }
+    }
+
+    protected function getCreatorAdminNameMap(array $adminIds)
+    {
+        $adminIds = array_values(array_unique(array_filter(array_map('intval', $adminIds))));
+        if (!$adminIds) {
+            return [];
+        }
+
+        $rows = Db::name('admin')
+            ->where('id', 'in', $adminIds)
+            ->field('id,username,nickname,mobile')
+            ->select();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $name = trim((string)($row['username'] ?? ''));
+            if ($name === '') {
+                $name = trim((string)($row['nickname'] ?? ''));
+            }
+            if ($name === '') {
+                $name = trim((string)($row['mobile'] ?? ''));
+            }
+            $map[(int)$row['id']] = $name !== '' ? $name : '--';
+        }
+
+        return $map;
     }
 
     protected function normalizeSequenceValue($value, $type = 'number')

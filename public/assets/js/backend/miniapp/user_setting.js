@@ -11,6 +11,7 @@ define(["jquery", "bootstrap", "backend", "table", "form"], function (
         extend: {
           index_url: "miniapp/user_setting/index",
           edit_url: "miniapp/user_setting/edit",
+          del_url: "miniapp/user_setting/del",
           reset_task_count_url: "miniapp/user_setting/reset_task_count",
           table: "miniapp_user",
         },

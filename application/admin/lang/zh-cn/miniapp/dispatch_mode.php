@@ -3,6 +3,7 @@
 return [
     'Id' => 'ID',
     'Template_name' => '模板名称',
+    'Creator_username' => '创建人',
     'Dispatch_order' => '派单订单',
     'Commission_rate' => '佣金比例',
     'Fixed_commission' => '固定佣金',
@@ -21,4 +22,6 @@ return [
     'Sequence only supports non-negative integers' => '序列仅支持非负整数，多个值请用 / 分隔',
     'Sequence only supports numeric values' => '序列仅支持数字，多个值请用 / 分隔',
     'Sequence only supports non-negative values' => '序列仅支持非负数',
+    'Super admin' => '超管',
+    'Super admin dispatch mode can not be modified' => '超管派单模式不可修改',
 ];

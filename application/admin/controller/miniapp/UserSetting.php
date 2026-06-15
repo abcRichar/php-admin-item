@@ -98,6 +98,7 @@ class UserSetting extends Backend
             $row['dispatch_mode_id'] = (int)($row['dispatch_mode_id'] ?? 0);
             $row['withdraw_address'] = $this->getWithdrawAddress((int)$row['id']);
             $row['task_progress'] = $this->getTaskProgress((int)$row['id']);
+            $this->view->assign('dispatchModeList', $this->getDispatchModeListForUser((int)$row['id']));
             $this->view->assign('row', $row);
             return $this->view->fetch();
         }
@@ -107,7 +108,7 @@ class UserSetting extends Backend
             $this->error(__('Parameter %s can not be empty', ''));
         }
 
-        $saveData = $this->normalizeSettingParams($params);
+        $saveData = $this->normalizeSettingParams($params, (int)$row['id']);
         Db::startTrans();
         try {
             $result = $row->allowField([
@@ -128,6 +129,37 @@ class UserSetting extends Backend
                 throw new \RuntimeException(__('No rows were updated'));
             }
             $this->saveWithdrawAddress((int)$row['id'], trim((string)($params['withdraw_address'] ?? '')));
+            Db::commit();
+        } catch (\Throwable $e) {
+            Db::rollback();
+            $this->error($e->getMessage());
+        }
+
+        $this->success();
+    }
+
+    public function del($ids = null)
+    {
+        if (!$this->request->isPost()) {
+            $this->error(__("Invalid parameters"));
+        }
+
+        $ids = $ids ?: $this->request->post('ids');
+        $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)$ids)))));
+        if (!$ids) {
+            $this->error(__('Parameter %s can not be empty', 'ids'));
+        }
+
+        foreach ($ids as $userId) {
+            $this->assertMiniappAgentCanAccessUser($userId);
+        }
+
+        Db::startTrans();
+        try {
+            $count = $this->model->where('id', 'in', $ids)->delete();
+            if (!$count) {
+                throw new \RuntimeException(__('No rows were deleted'));
+            }
             Db::commit();
         } catch (\Throwable $e) {
             Db::rollback();
@@ -200,10 +232,10 @@ class UserSetting extends Backend
         $this->success();
     }
 
-    protected function normalizeSettingParams($params)
+    protected function normalizeSettingParams($params, $userId = 0)
     {
         $dispatchModeId = (int)($params['dispatch_mode_id'] ?? 0);
-        $dispatchMode = $dispatchModeId > 0 ? $this->getDispatchModeData($dispatchModeId) : null;
+        $dispatchMode = $dispatchModeId > 0 ? $this->getDispatchModeData($dispatchModeId, (int)$userId) : null;
         if ($dispatchModeId > 0 && !$dispatchMode) {
             $this->error(__('Dispatch mode is invalid'));
         }
@@ -463,11 +495,25 @@ class UserSetting extends Backend
 
     protected function getDispatchModeList()
     {
-        $rows = Db::name('miniapp_dispatch_mode')
-            ->where('status', 1)
-            ->order('sort desc,id desc')
-            ->field('id,template_name')
-            ->select();
+        return $this->buildDispatchModeList($this->getBaseDispatchModeQuery());
+    }
+
+    protected function getDispatchModeListForUser($userId)
+    {
+        $query = $this->getBaseDispatchModeQuery();
+        $this->applyDispatchModeUserScope($query, (int)$userId);
+        return $this->buildDispatchModeList($query);
+    }
+
+    protected function getBaseDispatchModeQuery()
+    {
+        return Db::name('miniapp_dispatch_mode')
+            ->where('status', 1);
+    }
+
+    protected function buildDispatchModeList($query)
+    {
+        $rows = $query->order('sort desc,id desc')->field('id,template_name')->select();
 
         $list = ['0' => __('None')];
         foreach ($rows as $row) {
@@ -497,12 +543,27 @@ class UserSetting extends Backend
         return $map;
     }
 
-    protected function getDispatchModeData($dispatchModeId)
+    protected function getDispatchModeData($dispatchModeId, $userId = 0)
     {
-        return Db::name('miniapp_dispatch_mode')
+        $query = Db::name('miniapp_dispatch_mode')
             ->where('id', (int)$dispatchModeId)
-            ->where('status', 1)
-            ->find();
+            ->where('status', 1);
+
+        if ((int)$userId > 0) {
+            $this->applyDispatchModeUserScope($query, (int)$userId);
+        }
+
+        return $query->find();
+    }
+
+    protected function applyDispatchModeUserScope($query, $userId)
+    {
+        if ($this->auth && $this->auth->isSuperAdmin()) {
+            return $query->where('creator_admin_id', 0);
+        }
+
+        $adminId = $this->getCurrentAdminId();
+        return $adminId > 0 ? $query->where('creator_admin_id', $adminId) : $query->where('1=0');
     }
 
     protected function getWithdrawAddressMap(array $userIds)
